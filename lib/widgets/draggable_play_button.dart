@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import '../services/audio_service.dart';
 import 'dw_svg.dart';
 
 /// Floating circular play/pause control — the approved player's centre
@@ -11,13 +14,22 @@ import 'dw_svg.dart';
 ///   aligned to the shared 25px left card inset.
 /// - Drag to move it anywhere; clamped so it always stays fully on the
 ///   393x852 design frame.
-/// - Tap toggles play/pause (recitation itself stays behind the future
-///   AudioService; the control is visual for now).
+/// - Tap plays/pauses the on-screen ayah's recitation through
+///   [AudioService]; swiping to another ayah stops playback and resets
+///   the control. Taps always give visible feedback — a buffering spinner
+///   while the stream loads, and a message if it can't start.
 class DraggablePlayButton extends StatefulWidget {
-  const DraggablePlayButton({super.key, required this.initialPosition});
+  const DraggablePlayButton({
+    super.key,
+    required this.initialPosition,
+    this.audioUrl,
+  });
 
   /// Top-left corner in 393x852 design space.
   final Offset initialPosition;
+
+  /// Recitation stream of the ayah currently on screen; null when none.
+  final String? audioUrl;
 
   @override
   State<DraggablePlayButton> createState() => _DraggablePlayButtonState();
@@ -29,9 +41,44 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
 
   late Offset _position = widget.initialPosition;
 
-  /// Starts in the approved "playing" state (pause bars), matching the
-  /// reference frame.
-  bool _playing = true;
+  /// The icon mirrors real playback: paused (play triangle) until the user
+  /// taps, playing (pause bars) while recitation is audible, paused again
+  /// when a track finishes naturally.
+  bool _playing = false;
+
+  /// True while the recitation stream buffers — the circle shows a spinner
+  /// so a tap always gives visible feedback.
+  bool _busy = false;
+  StreamSubscription<bool>? _playbackSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Returning to home with audio still running must not show a stale
+    // paused icon.
+    _playing = AudioService.instance.isPlaying;
+    _playbackSub = AudioService.instance.stateStream.listen((playing) {
+      if (!mounted) return;
+      if (_playing == playing) return;
+      setState(() => _playing = playing);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant DraggablePlayButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.audioUrl != oldWidget.audioUrl) {
+      // A different ayah swiped in — drop the old recitation.
+      _playing = false;
+      unawaited(AudioService.instance.stop());
+    }
+  }
+
+  @override
+  void dispose() {
+    _playbackSub?.cancel();
+    super.dispose();
+  }
 
   Offset _clamped(Offset raw) {
     final maxDx = Dw.designWidth - _diameter - _edgeMargin;
@@ -46,6 +93,45 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
     setState(() => _position = _clamped(_position + details.delta));
   }
 
+  Future<void> _onTap() async {
+    if (_busy) return;
+    final url = widget.audioUrl;
+    if (url == null) {
+      _announce('No recitation available for this ayah.');
+      return;
+    }
+    if (_playing) {
+      setState(() => _playing = false);
+      unawaited(AudioService.instance.pause());
+      return;
+    }
+    // Buffering state gives the tap immediate visible feedback.
+    setState(() => _busy = true);
+    try {
+      await AudioService.instance.play(url);
+      if (mounted) setState(() => _playing = true);
+    } catch (_) {
+      // Stream unreachable / decoder error / platform plugin missing.
+      if (mounted) {
+        setState(() => _playing = false);
+        _announce("Couldn't load the recitation — check your connection.");
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Surfaces feedback through the nearest Scaffold instead of leaving the
+  /// control silently inert.
+  void _announce(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Positioned(
@@ -53,7 +139,7 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
       top: _position.dy,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _playing = !_playing),
+        onTap: _onTap,
         onPanUpdate: _onDrag,
         child: Semantics(
           button: true,
@@ -74,15 +160,24 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
               ],
             ),
             alignment: Alignment.center,
-            child: DwSvg(
-              _playing
-                  ? 'assets/05-home/pause.svg'
-                  : 'assets/05-home/play.svg',
-              // 1.3x the approved 27px card icon.
-              width: 35,
-              height: 35,
-              color: Dw.white,
-            ),
+            child: _busy
+                ? const SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      color: Dw.white,
+                    ),
+                  )
+                : DwSvg(
+                    _playing
+                        ? 'assets/05-home/pause.svg'
+                        : 'assets/05-home/play.svg',
+                    // 1.3x the approved 27px card icon.
+                    width: 35,
+                    height: 35,
+                    color: Dw.white,
+                  ),
           ),
         ),
       ),

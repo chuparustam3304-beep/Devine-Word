@@ -22,6 +22,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = PreferencesService(await SharedPreferences.getInstance());
   final state = AppState(preferences: preferences);
+  unawaited(state.loadLiveData());
   // Re-arm the persisted daily reminder on every launch — the OS may
   // drop the alarm after a reboot or app update.
   unawaited(

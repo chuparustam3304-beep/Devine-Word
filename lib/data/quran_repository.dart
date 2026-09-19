@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'models.dart';
 
 /// Source of Quran text for the application.
@@ -17,6 +19,32 @@ import 'models.dart';
 /// data-only change.
 class QuranRepository {
   const QuranRepository();
+
+  static List<Ayah>? _livePool;
+
+  static void setLivePool(List<Ayah> ayahs) {
+    _livePool = List<Ayah>.unmodifiable(ayahs);
+  }
+
+  /// Grows the live pool with freshly fetched ayat (one per home-screen
+  /// swipe), skipping any whose reference is already in circulation. When
+  /// no live pool exists yet (offline launch), the approved design set is
+  /// the base the new ayat are appended to.
+  static void appendLivePool(List<Ayah> ayahs) {
+    final current = _livePool ?? _approvedDesignAyat;
+    final seen = current.map((ayah) => ayah.reference).toSet();
+    final fresh = ayahs.where((ayah) => seen.add(ayah.reference)).toList();
+    if (fresh.isEmpty) return;
+    _livePool = List<Ayah>.unmodifiable([...current, ...fresh]);
+  }
+
+  /// Test hook: clears the live pool so [loadDailyPool] falls back to the
+  /// approved design set again, keeping tests hermetic against the static
+  /// pool state.
+  @visibleForTesting
+  static void resetLivePoolForTest() {
+    _livePool = null;
+  }
 
   /// The ayat currently available to the home feed, in circulation order.
   ///
@@ -96,11 +124,11 @@ class QuranRepository {
   ];
 
   /// Returns the pool of ayat the daily feed rotates through.
-  List<Ayah> loadDailyPool() => _approvedDesignAyat;
+  List<Ayah> loadDailyPool() => _livePool ?? _approvedDesignAyat;
 
   /// Finds an ayah by its `surah:ayah` reference, or null when absent.
   Ayah? findByReference(String reference) {
-    for (final ayah in _approvedDesignAyat) {
+    for (final ayah in loadDailyPool()) {
       if (ayah.reference == reference) return ayah;
     }
     return null;

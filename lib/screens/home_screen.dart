@@ -47,11 +47,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _goTab(int index) => switchTab(context, index);
 
-  /// Advances to the next ayah in the daily pool, wrapping around.
+  /// Swipe-up handler: fetches a brand-new random ayah from the live API and
+  /// shows it, so every swipe delivers fresh content beyond the pool loaded
+  /// at launch. While a fetch is in flight, further swipes are ignored; when
+  /// the fetch fails (e.g. offline) the pool already in memory keeps
+  /// rotating so the user still gets a different ayah per swipe.
   void _nextAyah(AppState state) {
+    if (state.isFetchingNextAyah) return;
+    _advance(state);
+  }
+
+  Future<void> _advance(AppState state) async {
     final pool = state.repository.loadDailyPool();
     if (pool.isEmpty) return;
-    setState(() => _poolIndex = (_poolIndex + 1) % pool.length);
+    final fetched = await state.fetchNextAyah();
+    if (!mounted) return;
+    setState(() {
+      if (fetched) {
+        // The fresh ayah was appended to the end of the pool — show it.
+        _poolIndex = state.repository.loadDailyPool().length - 1;
+      } else {
+        // Offline fallback: keep advancing through what we already have.
+        _poolIndex = (_poolIndex + 1) % state.repository.loadDailyPool().length;
+      }
+    });
     _scrollAyahToTop();
   }
 
@@ -68,13 +87,21 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppStateScope.of(context);
+    if (state.isLoadingLiveData) {
+      return DwScreenFrame(
+        background: Dw.photoFallback,
+        body: (context) => const Center(
+          child: CircularProgressIndicator(color: Dw.homeBlue),
+        ),
+      );
+    }
     final pool = state.repository.loadDailyPool();
     if (pool.isEmpty) {
       return DwScreenFrame(
         background: Dw.photoFallback,
         body: (context) => const Center(
           child: Text(
-            'The Quran dataset could not be loaded.\nPlease check the app installation.',
+            'Live Quran data could not be loaded.\nPlease check your internet connection.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Dw.secondary),
           ),
@@ -309,9 +336,13 @@ class _HomeScreenState extends State<HomeScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _nextAyah(state),
-              child: const Column(
+              // A genuine upward flick counts as a swipe too, not just a tap.
+              onVerticalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) < 0) _nextAyah(state);
+              },
+              child: Column(
                 children: [
-                  Text(
+                  const Text(
                     '⌃',
                     style: TextStyle(
                       fontSize: 25,
@@ -321,8 +352,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   Text(
-                    'Swipe up for another ayah',
-                    style: TextStyle(fontSize: 12, color: Dw.homeBlue),
+                    state.isFetchingNextAyah
+                        ? 'Fetching a new ayah…'
+                        : 'Swipe up for another ayah',
+                    style: const TextStyle(fontSize: 12, color: Dw.homeBlue),
                   ),
                 ],
               ),
@@ -334,7 +367,10 @@ class _HomeScreenState extends State<HomeScreen> {
           // 25px card inset, bottom edge 8px above the swipe strip
           // (strip top ≈723 → 60px bubble parked at top 655). Last in
           // the stack so its gestures win wherever it is dragged.
-          DraggablePlayButton(initialPosition: const Offset(25, 655)),
+          DraggablePlayButton(
+            initialPosition: const Offset(25, 655),
+            audioUrl: ayah.recitationUrl,
+          ),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 
+import '../data/api_quran_repository.dart';
 import '../data/models.dart';
 import '../data/quran_repository.dart';
 import '../services/preferences_service.dart';
@@ -11,9 +12,12 @@ import '../services/reminder_service.dart';
 /// Screens listen via [ListenableBuilder] and mutate through the methods
 /// below; every mutation is persisted immediately.
 class AppState extends ChangeNotifier {
-  AppState({required PreferencesService preferences})
-    : _preferences = preferences,
-      repository = const QuranRepository() {
+  AppState({
+    required PreferencesService preferences,
+    ApiQuranRepository? apiRepository,
+  }) : _preferences = preferences,
+       repository = const QuranRepository(),
+       _apiRepository = apiRepository ?? ApiQuranRepository() {
     _onboardingComplete = preferences.onboardingComplete;
     _translation = preferences.translationLanguage;
     _textSize = preferences.textSize;
@@ -28,6 +32,14 @@ class AppState extends ChangeNotifier {
 
   final PreferencesService _preferences;
   final QuranRepository repository;
+
+  /// Live-verse client used to fetch a fresh random ayah on every
+  /// home-screen swipe (injectable for tests).
+  final ApiQuranRepository _apiRepository;
+
+  bool _isLoadingLiveData = false;
+  bool _isFetchingNextAyah = false;
+  String? _liveDataError;
 
   bool _onboardingComplete = false;
   TranslationLanguage _translation = TranslationLanguage.urdu;
@@ -59,6 +71,59 @@ class AppState extends ChangeNotifier {
   Set<String> get bookmarks => Set.unmodifiable(_bookmarks);
   Set<String> get likes => Set.unmodifiable(_likes);
   List<ReadingRecord> get recent => List.unmodifiable(_recent);
+  bool get isLoadingLiveData => _isLoadingLiveData;
+
+  /// True while a swipe-triggered fetch of the next random ayah is in flight.
+  bool get isFetchingNextAyah => _isFetchingNextAyah;
+  String? get liveDataError => _liveDataError;
+
+  Future<void> loadLiveData() async {
+    _isLoadingLiveData = true;
+    _liveDataError = null;
+    notifyListeners();
+
+    try {
+      final livePool = await ApiQuranRepository().loadDailyPool();
+      if (livePool.isEmpty) {
+        throw Exception('The Quran API returned no ayahs.');
+      }
+      QuranRepository.setLivePool(livePool);
+    } catch (error) {
+      _liveDataError = error.toString();
+    } finally {
+      _isLoadingLiveData = false;
+      notifyListeners();
+    }
+  }
+
+  /// Fetches one brand-new random ayah and appends it to the daily pool so
+  /// the home feed shows fresh content on every swipe.
+  ///
+  /// Returns true when a new ayah joined the pool; false when the fetch
+  /// failed (offline / API error) or produced nothing new — the home screen
+  /// then falls back to rotating the ayat it already has.
+  Future<bool> fetchNextAyah() async {
+    if (_isFetchingNextAyah) return false;
+    _isFetchingNextAyah = true;
+    notifyListeners();
+    try {
+      final inCirculation = repository
+          .loadDailyPool()
+          .map((ayah) => ayah.reference)
+          .toSet();
+      final ayah = await _apiRepository.fetchRandomAyah(
+        excludeReferences: inCirculation,
+      );
+      if (ayah == null || inCirculation.contains(ayah.reference)) return false;
+      QuranRepository.appendLivePool([ayah]);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _isFetchingNextAyah = false;
+      notifyListeners();
+    }
+  }
 
   bool isBookmarked(String reference) => _bookmarks.contains(reference);
   bool isLiked(String reference) => _likes.contains(reference);

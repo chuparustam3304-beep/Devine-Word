@@ -1,7 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:devine_word/data/api_quran_repository.dart';
 import 'package:devine_word/data/models.dart';
 import 'package:devine_word/data/quran_repository.dart';
 import 'package:devine_word/design/app_theme.dart';
@@ -9,6 +15,7 @@ import 'package:devine_word/design/tokens.dart';
 import 'package:devine_word/main.dart';
 import 'package:devine_word/screens/home_screen.dart';
 import 'package:devine_word/screens/settings_screen.dart';
+import 'package:devine_word/services/audio_service.dart';
 import 'package:devine_word/services/preferences_service.dart';
 import 'package:devine_word/state/app_state.dart';
 import 'package:devine_word/state/app_state_scope.dart';
@@ -33,10 +40,70 @@ void main() {
       expect(repository.findByReference('94:6'), isNotNull);
       expect(repository.findByReference('1:1'), isNull);
     });
-
     test('ayah translation falls back when language is missing', () {
       final ayah = repository.findByReference('94:6')!;
       expect(ayah.translationFor(TranslationLanguage.english), isNotEmpty);
+    });
+
+    test('appendLivePool grows the pool and skips known references', () {
+      QuranRepository.resetLivePoolForTest();
+      final before = repository.loadDailyPool().length;
+      QuranRepository.appendLivePool([
+        const Ayah(
+          reference: '112:1',
+          surahName: 'AL-IKHLAS',
+          arabic: 'قُلْ هُوَ اللَّهُ أَحَدٌ',
+          translations: {
+            TranslationLanguage.english: 'Say: He is Allah, the One;',
+          },
+        ),
+        // A reference already in circulation must not be added twice.
+        const Ayah(
+          reference: '94:6',
+          surahName: 'ASH-SHARH',
+          arabic: 'إِنَّ مَعَ الْعُسْرِ يُسْرًا',
+          translations: {},
+        ),
+      ]);
+      final pool = repository.loadDailyPool();
+      expect(pool.length, before + 1);
+      expect(pool.last.reference, '112:1');
+    });
+  });
+
+  group('Ayah.recitationUrl', () {
+    test('prefers the stream provided by the live API', () {
+      const ayah = Ayah(
+        reference: '2:255',
+        surahName: 'AL-BAQARAH',
+        arabic: 'اللَّهُ',
+        translations: {},
+        audioUrl: 'https://example.com/provided.mp3',
+      );
+      expect(ayah.recitationUrl, 'https://example.com/provided.mp3');
+    });
+
+    test('derives the CDN URL from the reference (2:255 → global 262)', () {
+      const ayah = Ayah(
+        reference: '2:255',
+        surahName: 'AL-BAQARAH',
+        arabic: 'اللَّهُ',
+        translations: {},
+      );
+      expect(
+        ayah.recitationUrl,
+        'https://cdn.islamic.network/quran/audio/128/ar.alafasy/262.mp3',
+      );
+    });
+
+    test('derives late-Quran references correctly (112:1 → global 6222)', () {
+      const ayah = Ayah(
+        reference: '112:1',
+        surahName: 'AL-IKHLAS',
+        arabic: 'قُلْ هُوَ اللَّهُ أَحَدٌ',
+        translations: {},
+      );
+      expect(ayah.recitationUrl, endsWith('/6222.mp3'));
     });
   });
 
@@ -61,6 +128,71 @@ void main() {
       final ayah = state.repository.findByReference('94:6')!;
       await state.recordRead(ayah);
       expect(state.recent.single.reference, '94:6');
+    });
+
+    test('fetchNextAyah appends a brand-new ayah to the pool', () async {
+      SharedPreferences.setMockInitialValues({});
+      // Hermetic start: design pool only, so the fetched references are
+      // guaranteed fresh.
+      QuranRepository.resetLivePoolForTest();
+      var call = 0;
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+        apiRepository: ApiQuranRepository(
+          client: MockClient((request) async {
+            call++;
+            return http.Response(
+              jsonEncode({
+                'code': 200,
+                'status': 'OK',
+                'data': [
+                  {
+                    'edition': {'identifier': 'quran-uthmani'},
+                    'text': 'آية تجريبية $call',
+                    'numberInSurah': call,
+                    'surah': {'number': 100 + call, 'englishName': 'Surah'},
+                  },
+                  {
+                    'edition': {'identifier': 'en.sahih'},
+                    'text': 'Fresh translation $call',
+                  },
+                ],
+              }),
+              200,
+              // Explicit UTF-8 charset so the Arabic body string round-trips
+              // — http defaults to latin1 without a JSON/charset type.
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      final initial = state.repository.loadDailyPool().length;
+
+      expect(await state.fetchNextAyah(), isTrue);
+      expect(state.repository.loadDailyPool().length, initial + 1);
+
+      // A second swipe must surface yet another distinct ayah, not repeat.
+      final first = state.repository.loadDailyPool().last;
+      expect(await state.fetchNextAyah(), isTrue);
+      final second = state.repository.loadDailyPool().last;
+      expect(state.repository.loadDailyPool().length, initial + 2);
+      expect(second.reference, isNot(first.reference));
+    });
+
+    test('fetchNextAyah fails gracefully offline and keeps the pool', () async {
+      SharedPreferences.setMockInitialValues({});
+      QuranRepository.resetLivePoolForTest();
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+        apiRepository: ApiQuranRepository(
+          client: MockClient(
+            (request) async => http.Response('offline', 503),
+          ),
+        ),
+      );
+      final before = state.repository.loadDailyPool().length;
+      expect(await state.fetchNextAyah(), isFalse);
+      expect(state.repository.loadDailyPool().length, before);
     });
   });
 
@@ -90,8 +222,17 @@ void main() {
       'long ayah at max text size flows without overflow',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
+        QuranRepository.resetLivePoolForTest();
+        addTearDown(QuranRepository.resetLivePoolForTest);
         final state = AppState(
           preferences: PreferencesService(await SharedPreferences.getInstance()),
+          // Deterministic offline fetch: swipes fall back to rotating the
+          // built-in pool, exactly as on an offline device.
+          apiRepository: ApiQuranRepository(
+            client: MockClient(
+              (request) async => http.Response('offline', 503),
+            ),
+          ),
         );
         await tester.pumpWidget(
           MaterialApp(
@@ -126,6 +267,28 @@ void main() {
       'floating play bubble parks by the swipe strip, toggles and drags',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
+        // Hermetic pool: one ayah carrying a recitation stream so the
+        // floating control has something real to play.
+        QuranRepository.resetLivePoolForTest();
+        QuranRepository.setLivePool([
+          const Ayah(
+            reference: '1:1',
+            surahName: 'AL-FATIHAH',
+            arabic: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+            translations: {
+              TranslationLanguage.english:
+                  'In the name of Allah, the Most Gracious, the Most Merciful.',
+            },
+            audioUrl: 'https://example.com/recitation/001001.mp3',
+          ),
+        ]);
+        addTearDown(QuranRepository.resetLivePoolForTest);
+
+        // Swap the real audio stack for a fake — no platform channels here.
+        final fakeAudio = _FakeAudioService();
+        AudioService.instance = fakeAudio;
+        addTearDown(() => AudioService.instance = AudioService());
+
         final state = AppState(
           preferences: PreferencesService(await SharedPreferences.getInstance()),
         );
@@ -149,28 +312,22 @@ void main() {
         expect(posOf().left, 25);
         expect(posOf().top, 655);
 
-        // Starts in the approved "playing" state (pause bars); tapping
-        // toggles to the play triangle and back.
+        // Starts honestly paused (play triangle); tapping plays the
+        // recitation (pause bars); tapping again pauses.
         DwSvg bubbleIcon() => tester.widget<DwSvg>(
           find.descendant(of: bubble, matching: find.byType(DwSvg)),
         );
+        expect(bubbleIcon().asset, 'assets/05-home/play.svg');
+        await tester.tap(bubble);
+        await tester.pump();
         expect(bubbleIcon().asset, 'assets/05-home/pause.svg');
-        await tester.tap(bubble);
-        await tester.pump();
         expect(
-          find.byWidgetPredicate(
-            (w) => w is DwSvg && w.asset.endsWith('play.svg'),
-          ),
-          findsOneWidget,
+          fakeAudio.playedUrls.single,
+          'https://example.com/recitation/001001.mp3',
         );
         await tester.tap(bubble);
         await tester.pump();
-        expect(
-          find.byWidgetPredicate(
-            (w) => w is DwSvg && w.asset.endsWith('pause.svg'),
-          ),
-          findsOneWidget,
-        );
+        expect(bubbleIcon().asset, 'assets/05-home/play.svg');
 
         // Dragging far right/down parks the bubble against the clamp
         // bounds (8px margin inside the 393x852 design frame).
@@ -183,6 +340,59 @@ void main() {
         expect(posOf().left, 393 - 60 - 8);
       },
     );
+
+    testWidgets('a swipe fetches a brand-new ayah and shows it', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      // Hermetic start: design pool only, so 112:1 is guaranteed fresh.
+      QuranRepository.resetLivePoolForTest();
+      addTearDown(QuranRepository.resetLivePoolForTest);
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+        // A fresh random ayah (Al-Ikhlas 112:1) for every swipe request.
+        apiRepository: ApiQuranRepository(
+          client: MockClient((request) async {
+            return http.Response(
+              jsonEncode({
+                'code': 200,
+                'status': 'OK',
+                'data': [
+                  {
+                    'edition': {'identifier': 'quran-uthmani'},
+                    'text': 'قُلْ هُوَ اللَّهُ أَحَدٌ',
+                    'numberInSurah': 1,
+                    'surah': {'number': 112, 'englishName': 'Al-Ikhlas'},
+                  },
+                  {
+                    'edition': {'identifier': 'en.sahih'},
+                    'text': 'Say, "He is Allah, [who is] One,',
+                  },
+                ],
+              }),
+              200,
+              // Explicit UTF-8 charset so the Arabic body string round-trips
+              // — http defaults to latin1 without a JSON/charset type.
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildDevineWordTheme(),
+          home: AppStateScope(state: state, child: const HomeScreen()),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('AL-IKHLAS'), findsNothing);
+
+      await tester.tap(find.text('Swipe up for another ayah'));
+      await tester.pump();
+      await tester.pump();
+
+      // The freshly fetched ayah is now on screen.
+      expect(find.text('AL-IKHLAS'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('SettingsScreen — daily reminder', () {
@@ -301,4 +511,39 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+}
+
+/// Test double for [AudioService] — records play requests without touching
+/// the platform audio stack.
+class _FakeAudioService extends AudioService {
+  _FakeAudioService();
+
+  final playedUrls = <String>[];
+  bool _playing = false;
+  final _states = StreamController<bool>.broadcast();
+
+  @override
+  bool get isPlaying => _playing;
+
+  @override
+  Stream<bool> get stateStream => _states.stream;
+
+  @override
+  Future<void> play(String url) async {
+    playedUrls.add(url);
+    _playing = true;
+    _states.add(true);
+  }
+
+  @override
+  Future<void> pause() async {
+    _playing = false;
+    _states.add(false);
+  }
+
+  @override
+  Future<void> stop() async {
+    _playing = false;
+    _states.add(false);
+  }
 }
