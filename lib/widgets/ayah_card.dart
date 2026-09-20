@@ -115,7 +115,7 @@ class AyahCard extends StatelessWidget {
                 fontSize: arabicSize,
                 height: 1.35,
                 fontWeight: FontWeight.w600,
-                color: Dw.arabicInk,
+                color: Dw.arabicBase,
               ),
             ),
           ),

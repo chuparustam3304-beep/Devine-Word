@@ -37,6 +37,7 @@ class Dw {
   static const homeBlue = Color(0xFF0A4594);
   static const searchGray = Color(0xFF687392);
   static const arabicInk = Color(0xFF0C0C0C);
+  static const arabicBase = Color(0xFF101010);
   static const pageBg = Color(0xFFE9E9E9);
 
   // --- typography.css -----------------------------------------------------

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrintSynchronously; // TEMP-DEBUG
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,7 +20,12 @@ import 'state/app_state.dart';
 import 'state/app_state_scope.dart';
 
 void main() async {
+  // TEMP-DEBUG: Flutter throttles debugPrint (~1KB/s) and silently drops
+  // lines; print synchronously so the runtime diagnostics are complete.
+  debugPrint = debugPrintSynchronously;
   WidgetsFlutterBinding.ensureInitialized();
+  // TEMP-DEBUG: unthrottled logging so no diagnostic line is dropped.
+  debugPrint = debugPrintSynchronously;
   final preferences = PreferencesService(await SharedPreferences.getInstance());
   final state = AppState(preferences: preferences);
   unawaited(state.loadLiveData());
@@ -54,7 +60,7 @@ class DevineWordApp extends StatelessWidget {
           theme: buildDevineWordTheme(brightness: Brightness.light),
           darkTheme: buildDevineWordTheme(brightness: Brightness.dark),
           themeMode: state.themeMode,
-          initialRoute: Routes.splash,
+          initialRoute: Routes.home, // TEMP-DEBUG (was Routes.splash)
           onGenerateRoute: (settings) {
             final Widget page = switch (settings.name) {
               Routes.onboardingRead => const OnboardingReadScreen(),

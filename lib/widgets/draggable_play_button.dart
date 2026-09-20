@@ -62,6 +62,8 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
       if (_playing == playing) return;
       setState(() => _playing = playing);
     });
+    // TEMP-DEBUG: auto-start playback so a headless run can be observed.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onTap());
   }
 
   @override
@@ -94,13 +96,19 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
   }
 
   Future<void> _onTap() async {
-    if (_busy) return;
+    if (_busy) {
+      // The first buffer is still loading — nothing to pause yet; the
+      // spinner communicates the state.
+      return;
+    }
     final url = widget.audioUrl;
     if (url == null) {
       _announce('No recitation available for this ayah.');
       return;
     }
     if (_playing) {
+      // Pause at any point during playback — the position is kept so the
+      // next tap resumes exactly from here.
       setState(() => _playing = false);
       unawaited(AudioService.instance.pause());
       return;
@@ -108,8 +116,12 @@ class _DraggablePlayButtonState extends State<DraggablePlayButton> {
     // Buffering state gives the tap immediate visible feedback.
     setState(() => _busy = true);
     try {
-      await AudioService.instance.play(url);
-      if (mounted) setState(() => _playing = true);
+      // Already buffered and paused? Resume from the same position
+      // without re-downloading; otherwise load and play.
+      final resumed = await AudioService.instance.resume();
+      if (!resumed) {
+        await AudioService.instance.play(url);
+      }
     } catch (_) {
       // Stream unreachable / decoder error / platform plugin missing.
       if (mounted) {

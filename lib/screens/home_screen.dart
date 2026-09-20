@@ -10,6 +10,7 @@ import '../state/app_state_scope.dart';
 import '../widgets/collection_bits.dart';
 import '../widgets/draggable_play_button.dart';
 import '../widgets/dw_svg.dart';
+import '../widgets/synced_ayah_text.dart';
 
 /// Screen 05 — home feed: the daily ayah with its approved translation,
 /// like/save/share rail, playback card and four-lobed bottom navigation.
@@ -33,8 +34,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    // TEMP-DEBUG
+    debugPrint('DW-HOME-DISPOSE $hashCode\n${StackTrace.current}');
     _ayahScroll.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // TEMP-DEBUG
+    debugPrint('DW-HOME-INIT $hashCode');
   }
 
   void _scrollAyahToTop() {
@@ -87,6 +97,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppStateScope.of(context);
+    // TEMP-DEBUG
+    debugPrint('DW-HOME build loading=${state.isLoadingLiveData} '
+        'pool=${state.repository.loadDailyPool().length} idx=$_poolIndex');
     if (state.isLoadingLiveData) {
       return DwScreenFrame(
         background: Dw.photoFallback,
@@ -222,10 +235,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.only(left: 13, right: 13),
                   child: Column(
                     children: [
-                      Text(
-                        ayah.arabic,
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.center,
+                      SyncedAyahText(
+                        arabic: ayah.arabic,
+                        reference: ayah.reference,
+                        audioUrl: ayah.recitationUrl,
                         style: TextStyle(
                           fontFamily: Dw.arabic,
                           fontSize: 43 * _fontScale,
