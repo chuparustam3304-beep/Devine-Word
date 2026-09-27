@@ -1,42 +1,26 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrintSynchronously; // TEMP-DEBUG
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'design/app_theme.dart';
 import 'routing/app_router.dart';
 import 'screens/home_screen.dart';
-import 'screens/onboarding_listen_screen.dart';
-import 'screens/onboarding_read_screen.dart';
-import 'screens/onboarding_translation_screen.dart';
-import 'screens/recent_screen.dart';
-import 'screens/saved_screen.dart';
-import 'screens/settings_screen.dart';
+import 'screens/onboarding_grow_screen.dart';
+import 'screens/onboarding_journey_screen.dart';
+import 'screens/onboarding_quran_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/preferences_service.dart';
-import 'services/reminder_service.dart';
 import 'state/app_state.dart';
 import 'state/app_state_scope.dart';
 
 void main() async {
-  // TEMP-DEBUG: Flutter throttles debugPrint (~1KB/s) and silently drops
-  // lines; print synchronously so the runtime diagnostics are complete.
-  debugPrint = debugPrintSynchronously;
   WidgetsFlutterBinding.ensureInitialized();
-  // TEMP-DEBUG: unthrottled logging so no diagnostic line is dropped.
-  debugPrint = debugPrintSynchronously;
   final preferences = PreferencesService(await SharedPreferences.getInstance());
   final state = AppState(preferences: preferences);
+  // Prime the daily pool before the first frame; the design set is always
+  // available as an offline fallback while the live fetch is in flight.
   unawaited(state.loadLiveData());
-  // Re-arm the persisted daily reminder on every launch — the OS may
-  // drop the alarm after a reboot or app update.
-  unawaited(
-    ReminderService.instance.sync(
-      enabled: state.dailyReminder,
-      minutes: state.reminderMinutes,
-    ),
-  );
   runApp(DevineWordApp(state: state));
 }
 
@@ -48,37 +32,26 @@ class DevineWordApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ListenableBuilder so the theme follows the persisted appearance
-    // setting live (Light / Dark / System).
-    return ListenableBuilder(
-      listenable: state,
-      builder: (context, _) => AppStateScope(
-        state: state,
-        child: MaterialApp(
-          title: 'Devine Word',
-          debugShowCheckedModeBanner: false,
-          theme: buildDevineWordTheme(brightness: Brightness.light),
-          darkTheme: buildDevineWordTheme(brightness: Brightness.dark),
-          themeMode: state.themeMode,
-          initialRoute: Routes.home, // TEMP-DEBUG (was Routes.splash)
-          onGenerateRoute: (settings) {
-            final Widget page = switch (settings.name) {
-              Routes.onboardingRead => const OnboardingReadScreen(),
-              Routes.onboardingListen => const OnboardingListenScreen(),
-              Routes.onboardingTranslation =>
-                const OnboardingTranslationScreen(),
-              Routes.home => const HomeScreen(),
-              Routes.saved => const SavedScreen(),
-              Routes.recent => const RecentScreen(),
-              Routes.settings => const SettingsScreen(),
-              _ => const SplashScreen(),
-            };
-            return MaterialPageRoute<void>(
-              settings: settings,
-              builder: (_) => page,
-            );
-          },
-        ),
+    return AppStateScope(
+      state: state,
+      child: MaterialApp(
+        title: 'Devine Word',
+        debugShowCheckedModeBanner: false,
+        theme: buildDevineWordTheme(),
+        initialRoute: Routes.splash,
+        onGenerateRoute: (settings) {
+          final Widget page = switch (settings.name) {
+            Routes.onboardingJourney => const OnboardingJourneyScreen(),
+            Routes.onboardingGrow => const OnboardingGrowScreen(),
+            Routes.onboardingQuranic => const OnboardingQuranScreen(),
+            Routes.home => const HomeScreen(),
+            _ => const SplashScreen(),
+          };
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => page,
+          );
+        },
       ),
     );
   }

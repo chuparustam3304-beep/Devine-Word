@@ -10,20 +10,6 @@ enum TranslationLanguage {
   final String nativeLabel;
 }
 
-/// Font-scale preset for the "Text size" setting.
-enum TextSizeOption { small, defaultSize, large }
-
-/// Appearance setting: Light, Dark, or follow the OS (System).
-enum AppearanceMode {
-  light('Light'),
-  dark('Dark'),
-  system('System');
-
-  const AppearanceMode(this.label);
-
-  final String label;
-}
-
 /// A single ayah of the Quran with an approved translation.
 ///
 /// `reference` uses the `surah:ayah` form, e.g. `94:6`.
@@ -68,7 +54,8 @@ class Ayah {
   }
 
   factory Ayah.fromJson(Map<String, dynamic> json) {
-    final ref = json['reference'] ?? json['verse_key'] ?? json['verseKey'] ?? '';
+    final ref =
+        json['reference'] ?? json['verse_key'] ?? json['verseKey'] ?? '';
     final surah = json['surah_name'] ?? json['surah'] ?? '';
     final arabic = json['arabic'] ?? json['text'] ?? json['text_uthmani'] ?? '';
 
@@ -76,25 +63,44 @@ class Ayah {
     final translations = json['translations'] ?? json['translation'] ?? {};
     if (translations is Map) {
       // try language keys
-      if (translations['en'] != null) map[TranslationLanguage.english] = translations['en'];
-      if (translations['ur'] != null) map[TranslationLanguage.urdu] = translations['ur'];
+      if (translations['en'] != null) {
+        map[TranslationLanguage.english] = translations['en'];
+      }
+      if (translations['ur'] != null) {
+        map[TranslationLanguage.urdu] = translations['ur'];
+      }
       // fallback: single translation text
-      if (map.isEmpty && translations['text'] != null) map[TranslationLanguage.english] = translations['text'];
+      if (map.isEmpty && translations['text'] != null) {
+        map[TranslationLanguage.english] = translations['text'];
+      }
     } else if (translations is List) {
       // assume first is english, second may be urdu
-      if (translations.isNotEmpty) map[TranslationLanguage.english] = translations[0]['text'] ?? translations[0];
-      if (translations.length > 1) map[TranslationLanguage.urdu] = translations[1]['text'] ?? translations[1];
+      if (translations.isNotEmpty) {
+        map[TranslationLanguage.english] =
+            translations[0]['text'] ?? translations[0];
+      }
+      if (translations.length > 1) {
+        map[TranslationLanguage.urdu] =
+            translations[1]['text'] ?? translations[1];
+      }
     }
 
     // final fallback: any top-level english/urdu keys
-    if (map[TranslationLanguage.english] == null && json['translation_en'] != null) {
+    if (map[TranslationLanguage.english] == null &&
+        json['translation_en'] != null) {
       map[TranslationLanguage.english] = json['translation_en'];
     }
-    if (map[TranslationLanguage.urdu] == null && json['translation_ur'] != null) {
+    if (map[TranslationLanguage.urdu] == null &&
+        json['translation_ur'] != null) {
       map[TranslationLanguage.urdu] = json['translation_ur'];
     }
 
-    return Ayah(reference: ref.toString(), surahName: surah.toString(), arabic: arabic.toString(), translations: map);
+    return Ayah(
+      reference: ref.toString(),
+      surahName: surah.toString(),
+      arabic: arabic.toString(),
+      translations: map,
+    );
   }
 }
 
@@ -115,18 +121,3 @@ const List<int> _surahAyahCounts = [
   11, 8, 3, 9, 5, 4, 7, 3, 6, 3, // 101-110
   5, 4, 5, 6, // 111-114
 ];
-
-/// One recorded reading event shown in Recent activity.
-class ReadingRecord {
-  const ReadingRecord({
-    required this.reference,
-    required this.surahName,
-    required this.arabic,
-    required this.readAt,
-  });
-
-  final String reference;
-  final String surahName;
-  final String arabic;
-  final DateTime readAt;
-}

@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,15 +15,18 @@ import 'package:devine_word/data/quran_repository.dart';
 import 'package:devine_word/design/app_theme.dart';
 import 'package:devine_word/design/tokens.dart';
 import 'package:devine_word/main.dart';
+import 'package:devine_word/routing/app_router.dart';
 import 'package:devine_word/screens/home_screen.dart';
-import 'package:devine_word/screens/settings_screen.dart';
+import 'package:devine_word/screens/onboarding_grow_screen.dart';
+import 'package:devine_word/screens/onboarding_journey_screen.dart';
+import 'package:devine_word/screens/onboarding_quran_screen.dart';
+import 'package:devine_word/screens/splash_screen.dart';
 import 'package:devine_word/services/audio_service.dart';
 import 'package:devine_word/services/preferences_service.dart';
 import 'package:devine_word/state/app_state.dart';
 import 'package:devine_word/state/app_state_scope.dart';
-import 'package:devine_word/widgets/draggable_play_button.dart';
 import 'package:devine_word/widgets/dw_svg.dart';
-import 'package:devine_word/widgets/settings_bits.dart';
+import 'package:devine_word/widgets/onboarding_bits.dart';
 import 'package:devine_word/widgets/synced_ayah_text.dart';
 
 void main() {
@@ -239,73 +243,52 @@ void main() {
       AyahWordTiming(word: 4, startMs: 3000, endMs: 4000),
     ];
 
+    /// The stroke paint of a span, when it carries one — the recited-word
+    /// highlight is a stroke outline, never a background container.
+    Paint? strokePaintOf(InlineSpan span) {
+      if (span is! TextSpan) return null;
+      final paint = span.style?.foreground;
+      return paint?.style == PaintingStyle.stroke ? paint : null;
+    }
+
+    /// True when the span paints the recited-word highlight: a green
+    /// (`Dw.ayahGreen`) stroke outline.
+    bool isGreenStroke(InlineSpan span) {
+      final color = strokePaintOf(span)?.color;
+      return color != null && color.toARGB32() == Dw.ayahGreen.toARGB32();
+    }
+
+    /// Every span of the ayah's rich text, across all rendered passes.
+    List<TextSpan> spansOf(WidgetTester tester) => tester
+        .widgetList(
+          find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
+        )
+        .expand((w) {
+          final root = (w as Text).textSpan;
+          return root is TextSpan
+              ? (root.children ?? const <InlineSpan>[])
+              : const <InlineSpan>[];
+        })
+        .whereType<TextSpan>()
+        .toList();
+
     /// The recited word is marked by a green stroke outline (`Dw.ayahGreen`
     /// via `TextStyle.foreground` with `PaintingStyle.stroke`); the rest of
     /// the ayah keeps the default ink colour (`Dw.arabicBase` / caller color).
     /// No span should use a background fill (container highlight).
-    int greenSpanCount(WidgetTester tester) {
-      final richTexts = tester.widgetList(
-        find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
-      );
-      var count = 0;
-      for (final widget in richTexts) {
-        final root = (widget as Text).textSpan;
-        final spans = root is TextSpan
-            ? (root.children ?? const <InlineSpan>[])
-            : const <InlineSpan>[];
-        count += spans
-            .whereType<TextSpan>()
-            .where(
-              (span) =>
-                  span.style?.foreground?.style == PaintingStyle.stroke &&
-                  span.style?.foreground?.color?.value == Dw.ayahGreen.value,
-            )
-            .length;
-      }
-      return count;
-    }
+    int greenSpanCount(WidgetTester tester) =>
+        spansOf(tester).where(isGreenStroke).length;
 
     /// Spans still carrying a painted background — the container highlight
     /// this widget must no longer use.
-    int backgroundSpanCount(WidgetTester tester) {
-      final richTexts = tester.widgetList(
-        find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
-      );
-      var count = 0;
-      for (final widget in richTexts) {
-        final root = (widget as Text).textSpan;
-        final spans = root is TextSpan
-            ? (root.children ?? const <InlineSpan>[])
-            : const <InlineSpan>[];
-        count += spans
-            .whereType<TextSpan>()
-            .where((span) => span.style?.background != null)
-            .length;
-      }
-      return count;
-    }
+    int backgroundSpanCount(WidgetTester tester) =>
+        spansOf(tester).where((span) => span.style?.background != null).length;
 
-    /// Spans carrying a painted stroke outline — the active highlight approach.
-    /// Should match [greenSpanCount] since only green strokes are used.
-    int strokedSpanCount(WidgetTester tester) {
-      final richTexts = tester.widgetList(
-        find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
-      );
-      var count = 0;
-      for (final widget in richTexts) {
-        final root = (widget as Text).textSpan;
-        final spans = root is TextSpan
-            ? (root.children ?? const <InlineSpan>[])
-            : const <InlineSpan>[];
-        count += spans
-            .whereType<TextSpan>()
-            .where(
-              (span) => span.style?.foreground?.style == PaintingStyle.stroke,
-            )
-            .length;
-      }
-      return count;
-    }
+    /// Spans carrying a painted stroke outline — the active highlight
+    /// approach. Should match [greenSpanCount] since only green strokes are
+    /// used.
+    int strokedSpanCount(WidgetTester tester) =>
+        spansOf(tester).where((span) => strokePaintOf(span) != null).length;
 
     Future<void> pumpHighlighter(
       WidgetTester tester, {
@@ -397,17 +380,8 @@ void main() {
       positions.add(const Duration(milliseconds: 700));
       await tester.idle();
       await tester.pump();
-      final green = tester
-          .widgetList(
-            find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
-          )
-          .expand((w) => ((w as Text).textSpan! as TextSpan).children!)
-          .whereType<TextSpan>()
-          .where(
-            (span) =>
-                span.style?.foreground?.style == PaintingStyle.stroke &&
-                span.style?.foreground?.color?.value == Dw.ayahGreen.value,
-          )
+      final green = spansOf(tester)
+          .where(isGreenStroke)
           .map((span) => span.text)
           .toList();
       expect(green, hasLength(2));
@@ -434,17 +408,7 @@ void main() {
         await tester.pump();
 
         // The ayah is a single filled pass, not a fill-under-outline stack.
-        final richTexts = tester.widgetList(
-          find.byWidgetPredicate((w) => w is Text && w.textSpan != null),
-        );
-        final allSpans = richTexts
-            .expand(
-              (w) =>
-                  ((w as Text).textSpan! as TextSpan).children ??
-                  const <InlineSpan>[],
-            )
-            .whereType<TextSpan>()
-            .toList();
+        final allSpans = spansOf(tester);
 
         // The recited word is 'ثَانِيَةٌ' (mid-way through word 2) and it is
         // emphasised with a green stroke outline via `foreground` paint.
@@ -452,9 +416,9 @@ void main() {
           (span) => span.text == 'ثَانِيَةٌ',
         );
         expect(recitedWord.style?.color, isNull);
-        expect(recitedWord.style?.foreground, isNotNull);
-        expect(recitedWord.style?.foreground?.style, PaintingStyle.stroke);
-        expect(recitedWord.style?.foreground?.color?.value, Dw.ayahGreen.value);
+        final paint = strokePaintOf(recitedWord);
+        expect(paint, isNotNull);
+        expect(paint?.color.toARGB32(), Dw.ayahGreen.toARGB32());
 
         // Every other Arabic word keeps the caller's colour, not green.
         final otherWords = allSpans
@@ -480,78 +444,18 @@ void main() {
   });
 
   group('AppState', () {
-    test('bookmarks toggle and persist in memory', () async {
+    test('onboarding completion persists', () async {
       SharedPreferences.setMockInitialValues({});
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
+      final preferences = PreferencesService(
+        await SharedPreferences.getInstance(),
       );
-      expect(state.isBookmarked('94:6'), isFalse);
-      await state.toggleBookmark('94:6');
-      expect(state.isBookmarked('94:6'), isTrue);
-      await state.toggleBookmark('94:6');
-      expect(state.isBookmarked('94:6'), isFalse);
+      final state = AppState(preferences: preferences);
+      expect(state.onboardingComplete, isFalse);
+      await state.completeOnboarding();
+      expect(AppState(preferences: preferences).onboardingComplete, isTrue);
     });
 
-    test('reading records are stored newest first', () async {
-      SharedPreferences.setMockInitialValues({});
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      final ayah = state.repository.findByReference('94:6')!;
-      await state.recordRead(ayah);
-      expect(state.recent.single.reference, '94:6');
-    });
-
-    test('fetchNextAyah appends a brand-new ayah to the pool', () async {
-      SharedPreferences.setMockInitialValues({});
-      // Hermetic start: design pool only, so the fetched references are
-      // guaranteed fresh.
-      QuranRepository.resetLivePoolForTest();
-      var call = 0;
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-        apiRepository: ApiQuranRepository(
-          client: MockClient((request) async {
-            call++;
-            return http.Response(
-              jsonEncode({
-                'code': 200,
-                'status': 'OK',
-                'data': [
-                  {
-                    'edition': {'identifier': 'quran-uthmani'},
-                    'text': 'آية تجريبية $call',
-                    'numberInSurah': call,
-                    'surah': {'number': 100 + call, 'englishName': 'Surah'},
-                  },
-                  {
-                    'edition': {'identifier': 'en.sahih'},
-                    'text': 'Fresh translation $call',
-                  },
-                ],
-              }),
-              200,
-              // Explicit UTF-8 charset so the Arabic body string round-trips
-              // — http defaults to latin1 without a JSON/charset type.
-              headers: {'content-type': 'application/json; charset=utf-8'},
-            );
-          }),
-        ),
-      );
-      final initial = state.repository.loadDailyPool().length;
-
-      expect(await state.fetchNextAyah(), isTrue);
-      expect(state.repository.loadDailyPool().length, initial + 1);
-
-      // A second swipe must surface yet another distinct ayah, not repeat.
-      final first = state.repository.loadDailyPool().last;
-      expect(await state.fetchNextAyah(), isTrue);
-      final second = state.repository.loadDailyPool().last;
-      expect(state.repository.loadDailyPool().length, initial + 2);
-      expect(second.reference, isNot(first.reference));
-    });
-
-    test('fetchNextAyah fails gracefully offline and keeps the pool', () async {
+    test('daily pool keeps offline content on network failure', () async {
       SharedPreferences.setMockInitialValues({});
       QuranRepository.resetLivePoolForTest();
       final state = AppState(
@@ -560,31 +464,517 @@ void main() {
           client: MockClient((request) async => http.Response('offline', 503)),
         ),
       );
-      final before = state.repository.loadDailyPool().length;
-      expect(await state.fetchNextAyah(), isFalse);
-      expect(state.repository.loadDailyPool().length, before);
+      final before = state.repository.loadDailyPool();
+      await state.loadLiveData();
+      expect(state.repository.loadDailyPool(), before);
+      expect(state.isLoadingLiveData, isFalse);
+      expect(state.liveDataError, isNotNull);
     });
   });
 
   group('DevineWordApp', () {
-    testWidgets('splash renders the brand mark', (tester) async {
+    testWidgets('boots the shell without exceptions', (tester) async {
       SharedPreferences.setMockInitialValues({});
+      QuranRepository.resetLivePoolForTest();
+      addTearDown(QuranRepository.resetLivePoolForTest);
       final state = AppState(
         preferences: PreferencesService(await SharedPreferences.getInstance()),
+        // Deterministic offline behaviour, exactly as on an offline device.
+        apiRepository: ApiQuranRepository(
+          client: MockClient((request) async => http.Response('offline', 503)),
+        ),
       );
       await tester.pumpWidget(DevineWordApp(state: state));
-      // Renders the loader immediately...
-      expect(find.text('Loading...'), findsOneWidget);
-      // ...then pumps past the brand-moment delay so navigation to the
-      // first screen runs; the tree must settle with no exceptions.
-      await tester.pumpAndSettle(const Duration(seconds: 3));
+      // First frame plus the splash brand-moment window.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
       expect(tester.takeException(), isNull);
-      // The approved headline joins three lines in one Text widget.
-      expect(find.text('A closer\nconnection to\nthe Quran'), findsOneWidget);
+      // The launch surface (splash loader or the home ayah card, depending
+      // on the splash-routing development switch) must render content — it
+      // must never strand the app on an empty frame.
+      expect(find.byType(MaterialApp), findsOneWidget);
+      expect(find.byType(Navigator), findsOneWidget);
+      expect(find.byType(Text), findsWidgets);
+    });
+
+    testWidgets('resolves each onboarding route to its screen', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      QuranRepository.resetLivePoolForTest();
+      addTearDown(QuranRepository.resetLivePoolForTest);
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+        apiRepository: ApiQuranRepository(
+          client: MockClient((request) async => http.Response('offline', 503)),
+        ),
+      );
+      await tester.pumpWidget(DevineWordApp(state: state));
+      await tester.pump();
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      // Walks the onboarding sequence in flow order.
+      for (final (route, screen) in <(String, Type)>[
+        (Routes.onboardingGrow, OnboardingGrowScreen),
+        (Routes.onboardingJourney, OnboardingJourneyScreen),
+        (Routes.onboardingQuranic, OnboardingQuranScreen),
+      ]) {
+        navigator.pushNamed(route);
+        await tester.pump();
+        // Let the page transition finish so the new screen is on top.
+        await tester.pump(const Duration(milliseconds: 1000));
+        expect(find.byType(screen), findsOneWidget, reason: route);
+      }
+      expect(tester.takeException(), isNull);
     });
   });
 
   // (The player-card test was removed with the card itself; the
+  group('Onboarding — quranic prototype screens', () {
+    /// Pumps a shell with the three onboarding routes registered (mirroring
+    /// `main.dart`'s route table) and opens [initialRoute], so the
+    /// Continue/Back controls can really navigate.
+    Future<AppState> pumpOnboarding(
+      WidgetTester tester,
+      String initialRoute,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      QuranRepository.resetLivePoolForTest();
+      addTearDown(QuranRepository.resetLivePoolForTest);
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+        apiRepository: ApiQuranRepository(
+          client: MockClient((request) async => http.Response('offline', 503)),
+        ),
+      );
+      await tester.pumpWidget(
+        AppStateScope(
+          state: state,
+          child: MaterialApp(
+            theme: buildDevineWordTheme(),
+            initialRoute: initialRoute,
+            onGenerateRoute: (settings) => MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => switch (settings.name) {
+                // '/' is both the splash route and the inert base route that
+                // MaterialApp seeds for a non-'/' initialRoute — only build
+                // the real splash when it is the route actually being opened,
+                // otherwise its brand-moment timer is left pending.
+                Routes.splash when initialRoute == Routes.splash =>
+                  const SplashScreen(),
+                Routes.onboardingGrow => const OnboardingGrowScreen(),
+                Routes.onboardingJourney => const OnboardingJourneyScreen(),
+                Routes.onboardingQuranic => const OnboardingQuranScreen(),
+                Routes.home => const HomeScreen(),
+                _ => const OnboardingJourneyScreen(),
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return state;
+    }
+
+    testWidgets('splash sends an incomplete onboarding to step 1 (grow)', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, Routes.splash);
+
+      // The splash gives the brand mark its moment, then routes onward.
+      await tester.pump(const Duration(milliseconds: 1300));
+      // Don't use pumpAndSettle() because the grow screen has infinite spin
+      // animations that never settle.
+      await tester.pump(const Duration(milliseconds: 1000));
+
+      // Step 1 is the grow screen — onboarding always starts there.
+      expect(find.byType(OnboardingGrowScreen), findsOneWidget);
+      expect(find.byType(OnboardingJourneyScreen), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('grow screen is step 1 and continues to the journey screen', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, Routes.onboardingGrow);
+
+      expect(
+        find.text('Grow closer\nto GOD\na little more\neveryday'),
+        findsOneWidget,
+      );
+      expect(find.text('Audio devotionals'), findsOneWidget);
+      expect(find.text('Private reflections'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Continue swaps step 1 for step 2 (no back stack).
+      await tester.tap(find.text('Continue'));
+      // Wait for navigation to complete. Use multiple pumps to ensure
+      // the transition finishes.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Every journey of\nfaith is unique'), findsOneWidget);
+      expect(find.byType(OnboardingGrowScreen), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('grow screen slides the mountain up onto the bottom edge', (
+      tester,
+    ) async {
+      // The massif is anchored at .mountain-art's top (554) and scaled to
+      // cover the rest of the frame, so it runs off the bottom edge with the
+      // Continue button sitting on the mountain rather than on a cream shelf.
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpOnboarding(tester, Routes.onboardingGrow);
+
+      final mountain = find.byWidgetPredicate(
+        (w) =>
+            w is Image &&
+            (w.image as AssetImage).assetName.endsWith('mountain.png'),
+      );
+      expect(mountain, findsOneWidget);
+
+      // 1:1 mapping between design pixels and the 440x956 test surface.
+      // Landing: the whole range is still parked under the bottom edge, one
+      // box height below its seat, so nothing of it shows yet.
+      final landing = tester.getRect(mountain);
+      expect(landing.top, 956); // the summit starts below the fold
+      expect(landing.bottom, 956 + (956 - 554));
+
+      // Mid-rise it is part-way up: the summit has cleared the bottom edge but
+      // has not reached .mountain-art's line.
+      await tester.pump(const Duration(milliseconds: 420));
+      final rising = tester.getRect(mountain);
+      expect(rising.top, lessThan(956));
+      expect(rising.top, greaterThan(554));
+
+      // Past the end of its window it seats exactly on the 554px line, with
+      // the offset resolved to a hard zero rather than a near-miss.
+      await tester.pump(const Duration(milliseconds: 500));
+      final rect = tester.getRect(mountain);
+      expect(rect.left, 0); // full-bleed
+      expect(rect.width, 440);
+      expect(rect.top, 554); // .mountain-art top
+      expect(rect.bottom, 956); // runs off the bottom edge
+      // `cover` is what actually gets it there: a 737x455 source in a 440x402
+      // box scales by 402/455, so it fills the box top-to-bottom and sheds the
+      // outer flanks at the sides. `fitWidth` would instead leave the massif
+      // 271.6px tall, stopping 130px short of the bottom edge.
+      final art = tester.widget<Image>(mountain);
+      expect(art.fit, BoxFit.cover);
+      expect(art.alignment, Alignment.topCenter);
+      // No cream shelf underneath any more.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color == Dw.onboardingGround,
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'grow screen intro fades the headline in clearly, falls the leaf '
+      'from above, and spins the flowers',
+      (tester) async {
+        // 1:1 mapping between design pixels and the test surface.
+        tester.view.physicalSize = const Size(440, 956);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        await pumpOnboarding(tester, Routes.onboardingGrow);
+
+        final title = find.text('Grow closer\nto GOD\na little more\neveryday');
+        final leaf = find.byWidgetPredicate(
+          (widget) =>
+              widget is DwSvg && widget.asset.endsWith('leaf-orange.svg'),
+        );
+        final blooms = find.byWidgetPredicate(
+          (widget) =>
+              widget is DwSvg && widget.asset.endsWith('flower-yellow.svg'),
+        );
+        double titleOpacity() {
+          final op = tester
+              .widget<Opacity>(
+                find.ancestor(of: title, matching: find.byType(Opacity)).first,
+              )
+              .opacity;
+          return op;
+        }
+
+        double leafOpacity() => tester
+            .widget<Opacity>(
+              find.ancestor(of: leaf, matching: find.byType(Opacity)).first,
+            )
+            .opacity;
+
+        // Landing: the title is at its rest position (185) but heavily blurred
+        // and nearly invisible. The leaf has not appeared yet.
+        expect(tester.getRect(title).top, 185);
+        expect(
+          titleOpacity(),
+          lessThan(0.1),
+        ); // heavily blurred = nearly invisible
+        expect(leafOpacity(), 0);
+
+        // After 700ms the title should be clearing up (blur decreasing, opacity increasing).
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(
+          tester.getRect(title).top,
+          185,
+        ); // still at rest position (no slide)
+        expect(titleOpacity(), greaterThan(0.5)); // becoming visible
+        expect(leafOpacity(), 0); // leaf hasn't started falling yet
+
+        // Leaf starts falling at 0.50 of intro (2800ms * 0.50 = 1400ms).
+        await tester.pump(const Duration(milliseconds: 1000));
+        expect(tester.getRect(title).top, 185);
+        expect(titleOpacity(), greaterThan(0.9)); // nearly clear
+        expect(leafOpacity(), 0); // still not fallen
+
+        // Leaf starts falling. Pump a bit more to see it appear.
+        await tester.pump(const Duration(milliseconds: 200));
+        // At 1600ms (0.57 of intro), leaf should be visible and falling.
+        expect(leafOpacity(), greaterThan(0));
+        // Leaf should be above its rest position (coming down from above).
+        expect(tester.getTopLeft(leaf).dy, lessThan(114));
+
+        // By the end of intro (2800ms), leaf has settled at rest.
+        await tester.pump(const Duration(milliseconds: 1200));
+        expect(leafOpacity(), greaterThan(0.99));
+        // Leaf should be at its rest position (114).
+        expect(tester.getTopLeft(leaf).dy, moreOrLessEquals(114, epsilon: 2.0));
+
+        // Flowers appear after 0.7 of intro (1960ms) and spin continuously.
+        // Pump more time for them to appear and spin.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(blooms, findsNWidgets(2));
+        // Both flowers should be visible.
+        final firstRect = tester.getRect(blooms.at(0));
+        final secondRect = tester.getRect(blooms.at(1));
+        // First flower should be in the right area of the screen.
+        expect(firstRect.center.dx, greaterThan(340));
+        expect(firstRect.center.dx, lessThan(400));
+        expect(firstRect.center.dy, greaterThan(230));
+        expect(firstRect.center.dy, lessThan(280));
+        // Second flower should be on the left side.
+        expect(secondRect.center.dx, greaterThan(10));
+        expect(secondRect.center.dx, lessThan(70));
+        expect(secondRect.center.dy, greaterThan(360));
+        expect(secondRect.center.dy, lessThan(420));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('grow screen lands settled when animations are disabled', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+
+      await pumpOnboarding(tester, Routes.onboardingGrow);
+
+      // `prefers-reduced-motion`: straight to the settled screen.
+      expect(
+        tester
+            .getRect(find.text('Grow closer\nto GOD\na little more\neveryday'))
+            .top,
+        185,
+      );
+      expect(
+        tester.getTopLeft(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is DwSvg && widget.asset.endsWith('leaf-orange.svg'),
+          ),
+        ),
+        const Offset(157, 114),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('journey screen is step 2 and continues to the ayah screen', (
+      tester,
+    ) async {
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      expect(find.text('Every journey of\nfaith is unique'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Continue'));
+      // Don't use pumpAndSettle() because the grow screen has infinite spin
+      // animations that never settle.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.text(
+          'Everyday a new\nQuranic Ayah with\nRecitation & Translation',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('journey screen back disc sits left of the CTA and goes back', (
+      tester,
+    ) async {
+      // 1:1 mapping between design pixels and the test surface.
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      // The pale disc pairs with the CTA on the same bottom row.
+      final back = find.bySemanticsLabel('Back');
+      expect(back, findsOneWidget);
+      final backRect = tester.getRect(back);
+      final ctaRect = tester.getRect(find.byType(OnboardingContinueButton));
+      expect(backRect.size, const Size(57, 57)); // matches the CTA's height
+      expect(backRect.left, 27); // anchors the row
+      expect(backRect.top, 838); // .screen-journey .continue-button bottom: 61
+      expect(ctaRect.left, 96); // 27 + 57 disc + 12 gap
+      expect(ctaRect.width, 317); // 386 - 57 disc - 12 gap
+      expect(backRect.center.dy, moreOrLessEquals(ctaRect.center.dy));
+      final disc = tester.widget<DwSvg>(
+        find.descendant(of: back, matching: find.byType(DwSvg)),
+      );
+      expect(disc.asset, 'assets/09-onboarding/back-arrow.svg');
+
+      // Back returns to step 1 (grow).
+      await tester.tap(back);
+      // Pump enough time for the navigation to complete.
+      // Don't use pumpAndSettle() because the grow screen has infinite spin
+      // animations that never settle.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.text('Grow closer\nto GOD\na little more\neveryday'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('quran screen shows screen 3 and finishes onboarding home', (
+      tester,
+    ) async {
+      final state = await pumpOnboarding(tester, Routes.onboardingQuranic);
+
+      expect(
+        find.text(
+          'Everyday a new\nQuranic Ayah with\nRecitation & Translation',
+        ),
+        findsOneWidget,
+      );
+      // The four approved ayat, each with its rosette and book badge.
+      expect(
+        find.text('اقْرَأْ بِاسْمِ رَبِّكَ الَّذِي خَلَقَ'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('وَمَا خَلَقْتُ الْجِنَّ وَالْإِنسَ إِلَّا لِيَعْبُدُونِ'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('إِنَّ هَٰذَا الْقُرْآنَ يَهْدِي لِلَّتِي هِيَ أَقْوَمُ'),
+        findsOneWidget,
+      );
+      expect(find.text('وَقُل رَّبِّ زِدْنِي عِلْمًا'), findsOneWidget);
+      final assets = tester
+          .widgetList<DwSvg>(find.byType(DwSvg))
+          .map((svg) => svg.asset)
+          .toList();
+      expect(assets.where((a) => a.endsWith('book-badge.svg')), hasLength(4));
+      expect(
+        assets.where((a) => a.endsWith('verse-rosette.svg')),
+        hasLength(4),
+      );
+      expect(assets, contains('assets/09-onboarding/moon.svg'));
+      expect(assets, contains('assets/09-onboarding/back-arrow.svg'));
+      expect(tester.takeException(), isNull);
+
+      // Continue completes onboarding and opens home.
+      expect(state.onboardingComplete, isFalse);
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(state.onboardingComplete, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('quran screen back disc mirrors step 2 and returns to it', (
+      tester,
+    ) async {
+      // 1:1 mapping between design pixels and the test surface.
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpOnboarding(tester, Routes.onboardingQuranic);
+
+      // The prototype floats a bare arrow at the frame's top-left; this step
+      // now pairs the same pale disc with its CTA on the bottom row, exactly
+      // like step 2.
+      final back = find.bySemanticsLabel('Back');
+      expect(back, findsOneWidget);
+      final backRect = tester.getRect(back);
+      final ctaRect = tester.getRect(find.byType(OnboardingContinueButton));
+      expect(backRect.size, const Size(55, 55)); // matches the CTA's height
+      expect(backRect.left, 27); // the row anchor step 2's disc uses
+      expect(backRect.top, 815); // .quran-button — bottom: 86px
+      expect(ctaRect.left, 94); // 27 + 55 disc + 12 gap
+      expect(ctaRect.right, 393); // the prototype's 47 + 346 right edge
+      expect(backRect.center.dy, moreOrLessEquals(ctaRect.center.dy));
+      expect(backRect.top, greaterThan(400)); // nothing left at the top
+      final disc = tester.widget<DwSvg>(
+        find.descendant(of: back, matching: find.byType(DwSvg)),
+      );
+      expect(disc.asset, 'assets/09-onboarding/back-arrow.svg');
+
+      // Back returns to step 2 (journey).
+      await tester.tap(back);
+      // Don't use pumpAndSettle() because the grow screen has infinite spin
+      // animations that never settle.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Every journey of\nfaith is unique'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    test(
+      'back disc glyph is centred in the disc and slightly smaller',
+      () async {
+        final svg = await File('assets/09-onboarding/back-arrow.svg')
+            .readAsString();
+
+        // A 48-unit viewBox with a full-bleed r=24 disc at (24, 24).
+        expect(svg, contains('<circle cx="24" cy="24" r="24"'));
+        expect(svg, contains('stroke-width="2.6"'));
+
+        // Ink bounds of the arrow path, 2.6 stroke and round caps included.
+        final path = RegExp(r'd="([^"]+)"').firstMatch(svg)!.group(1)!;
+        final bounds = _strokeInkBounds(path, 2.6);
+        expect(bounds.center.dx, moreOrLessEquals(24, epsilon: 0.01));
+        expect(bounds.center.dy, moreOrLessEquals(24, epsilon: 0.01));
+        expect(bounds.width, moreOrLessEquals(bounds.height, epsilon: 0.01));
+        // 18.6 units wide — 39% of the disc, a touch less than the 20.2x22.2
+        // the delivered asset drew 3.7 units right of centre.
+        expect(bounds.width, greaterThan(0.35 * 48));
+        expect(bounds.width, lessThan(0.40 * 48));
+      },
+    );
+  });
+
   // play/pause control now lives in the draggable floating bubble.)
 
   group('HomeScreen', () {
@@ -610,17 +1000,19 @@ void main() {
       );
       await tester.pump();
 
-      // Advance the pool to the longest ayah (2:255, Ayat al-Kursi) —
-      // "Swipe up for another ayah" is tapped 3 times from index 0.
+      // The supplied Next control replaces swipe-to-advance. Each press
+      // slides the top card off the deck; the verse only commits once the
+      // slide settles.
       for (var i = 0; i < 3; i++) {
-        await tester.tap(find.text('Swipe up for another ayah'));
-        await tester.pump();
+        await tester.tap(find.bySemanticsLabel('Next ayah'));
+        await tester.pump(); // start the deck slide
+        await tester.pump(const Duration(milliseconds: 450)); // let it settle
       }
       expect(find.text('AL-BAQARAH'), findsOneWidget);
 
       // Max out the text-size stepper (5 presses).
       for (var i = 0; i < 5; i++) {
-        await tester.tap(find.bySemanticsLabel('Increase text size'));
+        await tester.tap(find.bySemanticsLabel('Increase reading size'));
         await tester.pump();
       }
       await tester.pump();
@@ -631,7 +1023,7 @@ void main() {
     });
 
     testWidgets(
-      'floating play bubble parks by the swipe strip, toggles and drags',
+      'fixed botanical play control toggles and removed features stay absent',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
         // Hermetic pool: one ayah carrying a recitation stream so the
@@ -669,44 +1061,33 @@ void main() {
         );
         await tester.pump();
 
-        final bubble = find.byType(DraggablePlayButton);
-        expect(bubble, findsOneWidget);
-
-        Positioned posOf() => tester.widget<Positioned>(
-          find.descendant(of: bubble, matching: find.byType(Positioned)),
-        );
-
-        // Initial parking spot: left 25px card inset, just above the
-        // "Swipe up for another ayah" strip.
-        expect(posOf().left, 25);
-        expect(posOf().top, 655);
-
-        // Starts honestly paused (play triangle); tapping plays the
-        // recitation (pause bars); tapping again pauses.
-        DwSvg bubbleIcon() => tester.widget<DwSvg>(
-          find.descendant(of: bubble, matching: find.byType(DwSvg)),
-        );
-        expect(bubbleIcon().asset, 'assets/05-home/play.svg');
-        await tester.tap(bubble);
+        final play = find.bySemanticsLabel('Play recitation');
+        expect(play, findsOneWidget);
+        final rect = tester.getRect(play);
+        await tester.tap(play);
         await tester.pump();
-        expect(bubbleIcon().asset, 'assets/05-home/pause.svg');
+        expect(find.bySemanticsLabel('Pause recitation'), findsOneWidget);
         expect(
           fakeAudio.playedUrls.single,
           'https://example.com/recitation/001001.mp3',
         );
-        await tester.tap(bubble);
+        await tester.tap(find.bySemanticsLabel('Pause recitation'));
         await tester.pump();
-        expect(bubbleIcon().asset, 'assets/05-home/play.svg');
-
-        // Dragging far right/down parks the bubble against the clamp
-        // bounds (8px margin inside the 393x852 design frame).
-        await tester.drag(bubble, const Offset(2000, 0));
+        expect(play, findsOneWidget);
+        await tester.drag(play, const Offset(200, 0));
         await tester.pump();
-        expect(posOf().left, 393 - 60 - 8);
-        await tester.drag(bubble, const Offset(0, 2000));
-        await tester.pump();
-        expect(posOf().top, 852 - 60 - 8);
-        expect(posOf().left, 393 - 60 - 8);
+        expect(tester.getRect(play), rect);
+        for (final label in [
+          'Like',
+          'Save',
+          'Settings',
+          'Recent activity',
+          'Swipe up for another ayah',
+        ]) {
+          expect(find.text(label), findsNothing);
+        }
+        expect(find.bySemanticsLabel('Share ayah'), findsOneWidget);
+        expect(tester.takeException(), isNull);
       },
     );
 
@@ -741,7 +1122,9 @@ void main() {
       );
       await tester.pump();
 
-      final bubble = find.byType(DraggablePlayButton);
+      final bubble = find.bySemanticsLabel(
+        RegExp(r'^(Play|Pause) recitation$'),
+      );
 
       // Play — loads the stream once.
       await tester.tap(bubble);
@@ -762,180 +1145,44 @@ void main() {
       expect(fakeAudio.playedUrls, hasLength(1));
     });
 
-    testWidgets('a swipe fetches a brand-new ayah and shows it', (
-      tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      // Hermetic start: design pool only, so 112:1 is guaranteed fresh.
-      QuranRepository.resetLivePoolForTest();
-      addTearDown(QuranRepository.resetLivePoolForTest);
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-        // A fresh random ayah (Al-Ikhlas 112:1) for every swipe request.
-        apiRepository: ApiQuranRepository(
-          client: MockClient((request) async {
-            return http.Response(
-              jsonEncode({
-                'code': 200,
-                'status': 'OK',
-                'data': [
-                  {
-                    'edition': {'identifier': 'quran-uthmani'},
-                    'text': 'قُلْ هُوَ اللَّهُ أَحَدٌ',
-                    'numberInSurah': 1,
-                    'surah': {'number': 112, 'englishName': 'Al-Ikhlas'},
-                  },
-                  {
-                    'edition': {'identifier': 'en.sahih'},
-                    'text': 'Say, "He is Allah, [who is] One,',
-                  },
-                ],
-              }),
-              200,
-              // Explicit UTF-8 charset so the Arabic body string round-trips
-              // — http defaults to latin1 without a JSON/charset type.
-              headers: {'content-type': 'application/json; charset=utf-8'},
-            );
-          }),
-        ),
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildDevineWordTheme(),
-          home: AppStateScope(state: state, child: const HomeScreen()),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('AL-IKHLAS'), findsNothing);
-
-      await tester.tap(find.text('Swipe up for another ayah'));
-      await tester.pump();
-      await tester.pump();
-
-      // The freshly fetched ayah is now on screen.
-      expect(find.text('AL-IKHLAS'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  group('SettingsScreen — daily reminder', () {
     testWidgets(
-      'toggle on reveals the reminder-time row and opens the picker',
+      'buttons navigate, swiping does not, and language changes live text',
       (tester) async {
         SharedPreferences.setMockInitialValues({});
+        QuranRepository.resetLivePoolForTest();
+        addTearDown(QuranRepository.resetLivePoolForTest);
+        final audio = _FakeAudioService();
+        AudioService.instance = audio;
+        addTearDown(() => AudioService.instance = AudioService());
         final state = AppState(
           preferences: PreferencesService(
             await SharedPreferences.getInstance(),
           ),
         );
-        // The test font (Ahem) renders every glyph as wide as it is tall,
-        // which overflows the fixed 393px design-space rows; halving the
-        // text scale makes the fake font fit like the real Inter does.
         await tester.pumpWidget(
           MaterialApp(
             theme: buildDevineWordTheme(),
-            home: Builder(
-              builder: (context) => MediaQuery(
-                data: MediaQuery.of(context)
-                    .copyWith(textScaler: TextScaler.linear(0.5)),
-                child: AppStateScope(
-                  state: state,
-                  child: const SettingsScreen(),
-                ),
-              ),
-            ),
+            home: AppStateScope(state: state, child: const HomeScreen()),
           ),
         );
-        await tester.pump();
-
-        // Off by default — no time row.
-        expect(find.text('Reminder time'), findsNothing);
-
-        // Turning the toggle on reveals the row with the default 8:00 AM.
-        await tester.tap(find.text('Daily reminder'));
-        await tester.pump();
-        expect(find.text('Reminder time'), findsOneWidget);
-        expect(find.text('8:00 AM'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-
-        // Tapping the row opens the OS time picker (help text present).
-        await tester.tap(find.text('Reminder time'));
         await tester.pumpAndSettle();
-        expect(find.text('Set your daily reminder'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        await tester.tap(find.text('Cancel'));
+        await tester.tap(find.bySemanticsLabel('Next ayah'));
         await tester.pumpAndSettle();
+        expect(find.text('AR-RA’D'), findsOneWidget);
+        await tester.drag(find.byType(SyncedAyahText), const Offset(0, -100));
+        await tester.pumpAndSettle();
+        expect(find.text('AR-RA’D'), findsOneWidget);
+        await tester.tap(find.bySemanticsLabel('Previous ayah'));
+        await tester.pumpAndSettle();
+        expect(find.text('ASH-SHARH'), findsOneWidget);
+        await tester.tap(find.bySemanticsLabel('Translation language'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('English · English'));
+        await tester.pumpAndSettle();
+        expect(find.text('Indeed, with hardship comes ease.'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
-
-    test('reminder time persists and renders 12-hour labels', () async {
-      SharedPreferences.setMockInitialValues({});
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      expect(state.reminderMinutes, 8 * 60);
-      expect(reminderTimeLabel(state.reminderMinutes), '8:00 AM');
-
-      await state.setReminderTime(19 * 60 + 45);
-      final reloaded = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      expect(reloaded.reminderMinutes, 19 * 60 + 45);
-      expect(reminderTimeLabel(reloaded.reminderMinutes), '7:45 PM');
-    });
-  });
-
-  group('Appearance', () {
-    test('persists and maps to the system ThemeMode', () async {
-      SharedPreferences.setMockInitialValues({});
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      expect(state.appearanceMode, AppearanceMode.light);
-      expect(state.themeMode, ThemeMode.light);
-
-      await state.setAppearance(AppearanceMode.dark);
-      expect(state.themeMode, ThemeMode.dark);
-
-      final reloaded = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      expect(reloaded.appearanceMode, AppearanceMode.dark);
-      expect(reloaded.themeMode, ThemeMode.dark);
-    });
-
-    testWidgets('dark theme restyles the settings screen', (tester) async {
-      SharedPreferences.setMockInitialValues({});
-      final state = AppState(
-        preferences: PreferencesService(await SharedPreferences.getInstance()),
-      );
-      await state.setAppearance(AppearanceMode.dark);
-
-      // 0.5 text scale so the wide Ahem test font fits the design rows.
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildDevineWordTheme(brightness: Brightness.light),
-          darkTheme: buildDevineWordTheme(brightness: Brightness.dark),
-          themeMode: state.themeMode,
-          home: Builder(
-            builder: (context) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(0.5)),
-              child: AppStateScope(state: state, child: const SettingsScreen()),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      // The screen resolves the dark palette and its copy applies it.
-      final titleContext = tester.element(find.text('Settings'));
-      final palette = Theme.of(titleContext).extension<DwPalette>()!;
-      expect(palette.background, DwPalette.dark.background);
-      expect(palette.panel, DwPalette.dark.panel);
-      expect(tester.takeException(), isNull);
-    });
   });
 }
 
@@ -968,6 +1215,7 @@ class _FakeAudioService extends AudioService {
   @override
   Future<void> play(String url) async {
     playedUrls.add(url);
+    fakeLoadedUrl = url;
     _loaded = true;
     _playing = true;
     _states.add(true);
@@ -1010,4 +1258,61 @@ class _FakeTimingsService implements RecitationTimingService {
 
   @override
   Future<List<AyahWordTiming>?> forReference(String reference) async => timings;
+}
+
+/// Ink bounds — where the strokes actually land — of a `M`/`L`/`H`/`V` path,
+/// including [strokeWidth] and its round caps and joins. Used to prove the
+/// onboarding back-arrow glyph is centred inside its disc and inset from it.
+Rect _strokeInkBounds(String d, double strokeWidth) {
+  final tokens = RegExp(r'[MmLlHhVvZz]|-?\d*\.?\d+')
+      .allMatches(d)
+      .map((match) => match.group(0)!)
+      .toList();
+  final points = <Offset>[];
+  var cursor = Offset.zero;
+  var command = '';
+  var index = 0;
+  double operand() => double.parse(tokens[index++]);
+
+  while (index < tokens.length) {
+    final token = tokens[index];
+    if (RegExp(r'[A-Za-z]').hasMatch(token)) {
+      command = token;
+      index++;
+      continue;
+    }
+    switch (command) {
+      case 'M' || 'm':
+        final x = operand();
+        final y = operand();
+        cursor = command == 'M' ? Offset(x, y) : cursor + Offset(x, y);
+        points.add(cursor);
+        command = command == 'M' ? 'L' : 'l'; // extra pairs are linetos
+      case 'L' || 'l':
+        final x = operand();
+        final y = operand();
+        cursor = command == 'L' ? Offset(x, y) : cursor + Offset(x, y);
+        points.add(cursor);
+      case 'H' || 'h':
+        final x = operand();
+        cursor = Offset(command == 'H' ? x : cursor.dx + x, cursor.dy);
+        points.add(cursor);
+      case 'V' || 'v':
+        final y = operand();
+        cursor = Offset(cursor.dx, command == 'V' ? y : cursor.dy + y);
+        points.add(cursor);
+      default:
+        index++; // Unsupported command: drop its operand.
+    }
+  }
+
+  final half = strokeWidth / 2;
+  final xs = points.map((point) => point.dx);
+  final ys = points.map((point) => point.dy);
+  return Rect.fromLTRB(
+    xs.reduce(math.min) - half,
+    ys.reduce(math.min) - half,
+    xs.reduce(math.max) + half,
+    ys.reduce(math.max) + half,
+  );
 }

@@ -3,133 +3,64 @@ import 'package:flutter/material.dart';
 import '../design/tokens.dart';
 import 'dw_svg.dart';
 
-/// Emblem shown top-left on the three onboarding screens.
-class OnboardingEmblem extends StatelessWidget {
-  const OnboardingEmblem({super.key, required this.asset});
-
-  final String asset;
-
-  @override
-  Widget build(BuildContext context) {
-    return const Positioned(
-      left: 31,
-      top: 100,
-      width: 44,
-      height: 44,
-      child: DwSvg('assets/02-onboarding-read/emblem-forest.svg'),
-    );
-  }
-}
-
-/// 35px serif headline, one array entry per approved line break.
-class OnboardingTitle extends StatelessWidget {
-  const OnboardingTitle(this.lines, {super.key});
-
-  final List<String> lines;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 30,
-      right: 28,
-      top: 165,
-      child: Text(
-        lines.join('\n'),
-        style: const TextStyle(
-          fontSize: 35,
-          height: 1.20,
-          letterSpacing: -1.5,
-          color: Dw.forest,
-          fontWeight: FontWeight.w400,
-        ),
-      ),
-    );
-  }
-}
-
-/// 18px supporting paragraph, one array entry per approved line break.
-class OnboardingLead extends StatelessWidget {
-  const OnboardingLead(this.lines, {super.key, required this.top});
-
-  final List<String> lines;
-  final double top;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 31,
-      right: 28,
-      top: top,
-      child: Text(
-        lines.join('\n'),
-        style: const TextStyle(
-          fontSize: 18,
-          height: 1.42,
-          letterSpacing: -0.35,
-          color: Dw.secondary,
-        ),
-      ),
-    );
-  }
-}
-
-/// Step indicator (`dots.svg`, 56x14) centered horizontally.
+/// Gradient call-to-action shared by the three quranic onboarding screens.
 ///
-/// Each step ships its own `dots.svg` with the active dot
-/// (step 1 → `02-onboarding-read`, step 2 → `03-onboarding-listen`,
-/// step 3 → `04-onboarding-translation`).
-class StepDots extends StatelessWidget {
-  const StepDots({super.key, required this.asset, required this.top});
-
-  final String asset;
-  final double top;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: (Dw.designWidth - 56) / 2,
-      top: top,
-      width: 56,
-      height: 14,
-      child: DwSvg(asset),
-    );
-  }
-}
-
-/// Sage pill call-to-action.
-class CtaButton extends StatelessWidget {
-  const CtaButton({
+/// Rebuilds the prototype's `.continue-button`: a 90° gradient from
+/// `#066859` to `#086e60`, white 18px label. Geometry differs per screen
+/// (`.screen-journey .continue-button`, `.grow-button`, `.quran-button`)
+/// and is passed in; all geometry lives in the prototype's 440×956
+/// design space.
+class OnboardingContinueButton extends StatelessWidget {
+  const OnboardingContinueButton({
     super.key,
     required this.label,
     required this.onTap,
     required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    this.radius = 29,
   });
 
   final String label;
   final VoidCallback onTap;
   final double left;
+  final double top;
+  final double width;
+  final double height;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
       left: left,
-      right: 29,
-      top: 705,
+      top: top,
+      width: width,
+      height: height,
       child: Semantics(
         button: true,
         label: label,
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: Container(
-            height: 60,
-            decoration: BoxDecoration(
-              color: Dw.sage,
-              borderRadius: BorderRadius.circular(31),
-            ),
             alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(radius),
+              gradient: const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [Color(0xFF066859), Color(0xFF086E60)],
+              ),
+            ),
             child: Text(
               label,
-              style: const TextStyle(fontSize: 18, color: Dw.white),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w400,
+                letterSpacing: -0.25,
+                color: Dw.white,
+              ),
             ),
           ),
         ),
@@ -138,32 +69,99 @@ class CtaButton extends StatelessWidget {
   }
 }
 
-/// 60px circular back control on steps 2 and 3.
-class BackCircleButton extends StatelessWidget {
-  const BackCircleButton({super.key, required this.asset, required this.onTap});
+/// Circular back control for the onboarding steps that can go back.
+///
+/// Reuses the design pack's `back-arrow.svg` — a pale `#DDEBE1` disc with a
+/// green arrow — at [size] px. The delivered glyph sat 3.7 units right of the
+/// disc's centre (x 17.6..37.8 in the 48-unit viewBox) and read large, so it
+/// is re-centred and cut to 18.6/48 units in the asset itself; that keeps
+/// every step's disc identical. Against the paper canvas (`#f5eedf`) the disc
+/// reads as a subtly different fill without competing with the Continue CTA,
+/// which is why it is paired with one on the same bottom row.
+class OnboardingCircleBackButton extends StatelessWidget {
+  const OnboardingCircleBackButton({
+    super.key,
+    required this.left,
+    required this.top,
+    required this.onTap,
+    this.size = 57,
+    this.semanticLabel = 'Back',
+  });
 
-  final String asset;
+  final double left;
+  final double top;
   final VoidCallback onTap;
+  final double size;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left: 29,
-      top: 705,
-      width: 60,
-      height: 60,
+      left: left,
+      top: top,
+      width: size,
+      height: size,
       child: Semantics(
         button: true,
-        label: 'Back',
+        label: semanticLabel,
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: onTap,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Dw.back,
+          child: const DwSvg('assets/09-onboarding/back-arrow.svg'),
+        ),
+      ),
+    );
+  }
+}
+
+/// Frosted feature pill floating over the deep-green grow screen
+/// (`.feature-pill` — 30px tall, 16px radius, 14px icon + 12.5px label).
+/// Anchored by [left] or [right]; one of the two must be provided.
+class OnboardingFeaturePill extends StatelessWidget {
+  const OnboardingFeaturePill({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.top,
+    this.left,
+    this.right,
+  }) : assert(left != null || right != null);
+
+  final String icon;
+  final String label;
+  final double top;
+  final double? left;
+  final double? right;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: left,
+      right: right,
+      top: top,
+      height: 30,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          // rgba(0, 38, 34, .30)
+          color: const Color(0xFF002622).withValues(alpha: 0.30),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DwSvg(icon, width: 14, height: 14),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.12,
+                color: Dw.white.withValues(alpha: 0.94),
+              ),
             ),
-            child: Center(child: DwSvg(asset, width: 24, height: 24)),
-          ),
+          ],
         ),
       ),
     );

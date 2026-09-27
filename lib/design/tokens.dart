@@ -40,6 +40,24 @@ class Dw {
   static const arabicBase = Color(0xFF101010);
   static const pageBg = Color(0xFFE9E9E9);
 
+  // --- botanical homescreen pack (quran-reader, 603×1280) -------------------
+  static const quranGreen = Color(0xFF1C5C48);
+  static const quranIvory = Color(0xFFF1EEDF);
+  static const quranPaper = Color(0xFFF6F4E7);
+  static const quranBody = Color(0xFFE9E6D9);
+  static const quranFocus = Color(0xFFC58A2B);
+  /// The golden amber of the card's top-left botanical leaf — the accent
+  /// the Previous/Next controls tint when pressed.
+  static const leafAmber = Color(0xFFE8A040);
+
+  // --- quranic onboarding prototype (440×956 design space) ----------------
+  // Palette transcribed from quranic-onboarding-clone/styles.css `:root`.
+  static const onboardingPaper = Color(0xFFF5EEDF); // --paper
+  static const onboardingGreen = Color(0xFF086A5A); // --green
+  static const onboardingDeepGreen = Color(0xFF00483F); // --deep-green
+  static const onboardingGold = Color(0xFFC9993F); // --gold
+  static const onboardingGround = Color(0xFFF0DFB8); // .ground strip
+
   // --- typography.css -----------------------------------------------------
   static const ui = 'Inter';
   static const display = 'DM Serif Display';
@@ -50,6 +68,26 @@ class Dw {
   /// Reference artboard the HTML screens were designed against.
   static const designWidth = 393.0;
   static const designHeight = 852.0;
+
+  // --- quranic onboarding screen 1 (grow) layout tokens (440×956) ---------
+  /// Top edge of the mountain artwork (runs off the bottom of the screen).
+  static const mountainTop = 554.0;
+  /// Top of the CTA row (back button, two chips, Continue).
+  static const ctaTop = 896.0;
+  /// Left edge of the back disc.
+  static const backLeft = 27.0;
+  /// Height of the CTA row controls.
+  static const ctaHeight = 57.0;
+  /// Left edge of the "Audio devotionals" chip.
+  static const audioDevotionalLeft = 96.0;
+  /// Width of each CTA chip.
+  static const ctaWidth = 133.0;
+  /// Left edge of the "Private reflections" chip.
+  static const reflectionLeft = 238.0;
+  /// Left edge of the Continue button.
+  static const continueLeft = 94.0;
+  /// Width of the Continue button.
+  static const continueWidth = 299.0;
 }
 
 /// Semantic palette resolved per appearance mode, injected as a

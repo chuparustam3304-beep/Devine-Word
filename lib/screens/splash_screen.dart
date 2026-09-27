@@ -38,11 +38,6 @@ class _SplashScreenState extends State<SplashScreen> {
   /// Gives the brand moment its minimum visibility, then routes to the
   /// first screen of the day.
   Future<void> _bringOnline() async {
-    // TEMP-DEBUG: while validating recitation highlighting the app is
-    // launched straight on home; without this the splash (which is still
-    // below home in the route stack) would replace the whole stack.
-    final bool skipSplashRouting = true;
-    if (skipSplashRouting) return;
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted || _routed) return;
     _routed = true;
@@ -51,7 +46,7 @@ class _SplashScreenState extends State<SplashScreen> {
       Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (_) => false);
     } else {
       Navigator.of(context)
-          .pushNamedAndRemoveUntil(Routes.onboardingRead, (_) => false);
+          .pushNamedAndRemoveUntil(Routes.onboardingGrow, (_) => false);
     }
   }
 
