@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint; // TEMP-DEBUG
 import 'package:just_audio/just_audio.dart';
 
 /// App-wide recitation playback behind the home screen's floating
@@ -21,14 +20,6 @@ class AudioService {
   AudioPlayer? _player;
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _positionSub;
-  int _rawTicks = 0; // TEMP-DEBUG
-  String _pstate = ''; // TEMP-DEBUG
-
-  /// TEMP-DEBUG: raw position ticks seen from the player.
-  int get debugTicks => _rawTicks;
-
-  /// TEMP-DEBUG: last processing state name.
-  String get debugPstate => _pstate;
   String? _loadedUrl;
 
   /// Emits true/false as recitation starts and stops — including when a
@@ -54,28 +45,12 @@ class AudioService {
   /// paused visual state.
   Future<void> play(String url) async {
     final player = _player ??= AudioPlayer();
-    _stateSub ??= player.playerStateStream.listen((state) {
-      // TEMP-DEBUG
-      _pstate = state.processingState.name;
-      _stateController.add(state.playing);
-    });
-    // TEMP-DEBUG (throttled: a per-tick print drowns the log)
-    _positionSub ??= player.positionStream.listen((position) {
-      _rawTicks++;
-      _positionController.add(position);
-    });
+    _stateSub ??= player.playerStateStream.listen(
+      (state) => _stateController.add(state.playing),
+    );
+    _positionSub ??= player.positionStream.listen(_positionController.add);
     if (_loadedUrl != url) {
-      // TEMP-DEBUG
-      debugPrint('DW-PLAY loading $url');
-      try {
-        final duration = await player.setUrl(url);
-        // TEMP-DEBUG
-        debugPrint('DW-PLAY loaded duration=$duration');
-      } catch (error) {
-        // TEMP-DEBUG
-        debugPrint('DW-PLAY FAILED $error');
-        rethrow;
-      }
+      await player.setUrl(url);
       _loadedUrl = url;
     }
     // After a completed track, start over; otherwise continue from the
@@ -112,7 +87,7 @@ class AudioService {
     await _player?.pause();
   }
 
-  /// Stops playback and unloads the track — used when the home feed swipes
+  /// Stops playback and unloads the track — used when the home deck moves
   /// to a different ayah.
   Future<void> stop() async {
     final player = _player;
@@ -120,14 +95,5 @@ class AudioService {
     await player.stop();
     _loadedUrl = null;
     _stateController.add(false);
-  }
-
-  /// Releases the audio resources. Not part of the normal app lifecycle.
-  Future<void> dispose() async {
-    await _stateSub?.cancel();
-    await _positionSub?.cancel();
-    await _stateController.close();
-    await _positionController.close();
-    await _player?.dispose();
   }
 }

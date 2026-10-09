@@ -1,7 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val releaseSigningPropertiesFile = rootProject.file("key.properties")
+val releaseSigningProperties = Properties()
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.inputStream().use(releaseSigningProperties::load)
+}
+
+val releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.endsWith("Release", ignoreCase = true)
+}
+if (releaseBuildRequested && !releaseSigningPropertiesFile.exists()) {
+    throw GradleException(
+        "Android release signing is not configured. Create android/key.properties " +
+            "from android/key.properties.example and provide your private upload keystore."
+    )
 }
 
 android {
@@ -28,12 +46,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseSigningPropertiesFile.exists()) {
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                    ?: throw GradleException("keyAlias is missing from android/key.properties")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+                    ?: throw GradleException("keyPassword is missing from android/key.properties")
+                storeFile = rootProject.file(
+                    releaseSigningProperties.getProperty("storeFile")
+                        ?: throw GradleException("storeFile is missing from android/key.properties")
+                )
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                    ?: throw GradleException("storePassword is missing from android/key.properties")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // No release signing credentials are available in this repository.
-            // The debug keystore keeps `flutter run --release` working; supply
-            // an upload keystore via key.properties before publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

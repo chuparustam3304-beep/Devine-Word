@@ -6,8 +6,8 @@ import '../services/preferences_service.dart';
 
 /// Central application state backed by [PreferencesService].
 ///
-/// Screens listen via [ListenableBuilder] and mutate through the methods
-/// below; every mutation is persisted immediately.
+/// Screens read it through the `AppStateScope` inherited notifier and mutate
+/// through the methods below; every mutation is persisted immediately.
 class AppState extends ChangeNotifier {
   AppState({
     required PreferencesService preferences,
@@ -21,38 +21,23 @@ class AppState extends ChangeNotifier {
   final PreferencesService _preferences;
   final QuranRepository repository;
 
-  /// Live-verse client used to fetch the daily pool at launch (injectable for
-  /// tests). Replaces the older per-swipe `fetchNextAyah` flow, which was
-  /// removed together with the swipe-up gesture.
+  /// Live-verse client used to fetch the daily pool at launch (injectable
+  /// for tests).
   final ApiQuranRepository _apiRepository;
-
-  bool _isLoadingLiveData = false;
-  String? _liveDataError;
 
   bool _onboardingComplete = false;
 
   bool get onboardingComplete => _onboardingComplete;
-  bool get isLoadingLiveData => _isLoadingLiveData;
-  String? get liveDataError => _liveDataError;
 
   /// Brings the daily pool online (the design set is always available as a
   /// fallback for offline launches). Runs once, unawaited, from `main()`.
   Future<void> loadLiveData() async {
-    _isLoadingLiveData = true;
-    _liveDataError = null;
-    notifyListeners();
-
     try {
       final livePool = await _apiRepository.loadDailyPool();
-      if (livePool.isEmpty) {
-        throw Exception('The Quran API returned no ayahs.');
-      }
+      if (livePool.isEmpty) return;
       QuranRepository.setLivePool(livePool);
-    } catch (error) {
-      _liveDataError = error.toString();
-    } finally {
-      _isLoadingLiveData = false;
-      notifyListeners();
+    } catch (_) {
+      // Offline or API failure — the approved design set stays available.
     }
   }
 

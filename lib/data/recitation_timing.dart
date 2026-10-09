@@ -44,7 +44,7 @@ class RecitationTimingService {
   final int reciterId;
 
   /// reference → timings; null = not fetched yet, empty list = fetched and
-  /// unavailable (kept so a swipe storm doesn't hammer the API).
+  /// unavailable (kept so rapid ayah changes don't hammer the API).
   final Map<String, List<AyahWordTiming>?> _cache = {};
 
   /// Word timings for a `surah:ayah` [reference], or null when unavailable

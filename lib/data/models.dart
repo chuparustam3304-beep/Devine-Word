@@ -1,4 +1,4 @@
-/// Translation options offered on onboarding and in Settings.
+/// Translation options offered by the home translator.
 enum TranslationLanguage {
   urdu('Urdu', 'اردو'),
   english('English', 'English'),
@@ -51,56 +51,6 @@ class Ayah {
       global += _surahAyahCounts[i];
     }
     return 'https://cdn.islamic.network/quran/audio/128/ar.alafasy/$global.mp3';
-  }
-
-  factory Ayah.fromJson(Map<String, dynamic> json) {
-    final ref =
-        json['reference'] ?? json['verse_key'] ?? json['verseKey'] ?? '';
-    final surah = json['surah_name'] ?? json['surah'] ?? '';
-    final arabic = json['arabic'] ?? json['text'] ?? json['text_uthmani'] ?? '';
-
-    final Map<TranslationLanguage, String> map = {};
-    final translations = json['translations'] ?? json['translation'] ?? {};
-    if (translations is Map) {
-      // try language keys
-      if (translations['en'] != null) {
-        map[TranslationLanguage.english] = translations['en'];
-      }
-      if (translations['ur'] != null) {
-        map[TranslationLanguage.urdu] = translations['ur'];
-      }
-      // fallback: single translation text
-      if (map.isEmpty && translations['text'] != null) {
-        map[TranslationLanguage.english] = translations['text'];
-      }
-    } else if (translations is List) {
-      // assume first is english, second may be urdu
-      if (translations.isNotEmpty) {
-        map[TranslationLanguage.english] =
-            translations[0]['text'] ?? translations[0];
-      }
-      if (translations.length > 1) {
-        map[TranslationLanguage.urdu] =
-            translations[1]['text'] ?? translations[1];
-      }
-    }
-
-    // final fallback: any top-level english/urdu keys
-    if (map[TranslationLanguage.english] == null &&
-        json['translation_en'] != null) {
-      map[TranslationLanguage.english] = json['translation_en'];
-    }
-    if (map[TranslationLanguage.urdu] == null &&
-        json['translation_ur'] != null) {
-      map[TranslationLanguage.urdu] = json['translation_ur'];
-    }
-
-    return Ayah(
-      reference: ref.toString(),
-      surahName: surah.toString(),
-      arabic: arabic.toString(),
-      translations: map,
-    );
   }
 }
 

@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -28,15 +27,6 @@ const Interval _growMountainRise = Interval(
 /// height, so the summit itself begins under the bottom edge and the whole
 /// range has to climb into view.
 const double _growMountainRiseFrom = 956 - Dw.mountainTop;
-
-/// Headline: opacity resolves over this slice, the blur clears over
-/// [_growTitleBlur]. The two are deliberately offset, so the type is already
-/// legible while it is still finishing its defocus.
-const Interval _growTitleFade = Interval(0.10, 0.45, curve: Curves.easeOut);
-const Interval _growTitleBlur = Interval(0.00, 0.62, curve: Curves.easeOut);
-
-/// Blur radius (design px) the headline starts at.
-const double _growTitleBlurStart = 12;
 
 /// Leaf: it leaves the top of the frame at 0.65 — after the headline has
 /// settled — and is seated by 1.00.
@@ -183,7 +173,18 @@ class _OnboardingGrowScreenState extends State<OnboardingGrowScreen>
           // .top-leaf (z6) — deliberately before `.grow-title` (z7), so the
           // leaf falls behind the headline.
           _GrowLeaf(intro: _intro),
-          _GrowTitle(intro: _intro),
+          // .grow-title (z7) — 62px serif, centred, four lines.
+          OnboardingBlurTitle(
+            text: 'Grow closer\nto GOD\na little more\neveryday',
+            intro: _intro,
+            left: 38,
+            top: 185,
+            width: 364,
+            fontSize: 62,
+            height: 1.05,
+            letterSpacing: -0.8,
+            color: Dw.white,
+          ),
           // .flower-right / .flower-left — the reference nests them inside
           // `.grow-title`'s spans, so they paint with the title (z7).
           _SpinningBloom(intro: _intro, spin: _bloomSpinA, left: 360, top: 253),
@@ -263,49 +264,6 @@ class _GrowLeaf extends StatelessWidget {
           );
         },
         child: const DwSvg('assets/09-onboarding/leaf-orange.svg'),
-      ),
-    );
-  }
-}
-
-/// The prototype's `.grow-title`: 62px serif, centred, four lines. It never
-/// moves — it resolves from a heavy blur into sharp type.
-class _GrowTitle extends StatelessWidget {
-  const _GrowTitle({required this.intro});
-
-  final Animation<double> intro;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 38,
-      top: 185,
-      width: 364,
-      child: AnimatedBuilder(
-        animation: intro,
-        builder: (context, child) {
-          final opacity = _growTitleFade.transform(intro.value);
-          final sharpen = _growTitleBlur.transform(intro.value);
-          final sigma = _growTitleBlurStart * (1 - sharpen);
-          final text = Opacity(opacity: opacity, child: child!);
-          if (sigma < 0.05) return text;
-          return ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-            child: text,
-          );
-        },
-        child: const Text(
-          'Grow closer\nto GOD\na little more\neveryday',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: Dw.display,
-            fontSize: 62,
-            height: 1.05,
-            fontWeight: FontWeight.w400,
-            letterSpacing: -0.8,
-            color: Dw.white,
-          ),
-        ),
       ),
     );
   }

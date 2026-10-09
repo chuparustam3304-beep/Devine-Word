@@ -6,19 +6,11 @@ import '../widgets/dw_svg.dart';
 import '../routing/app_router.dart';
 import '../state/app_state_scope.dart';
 
-/// DEVELOPMENT SWITCH — REMOVE BEFORE RELEASE.
-///
-/// While the onboarding screens are still being polished, set this to
-/// `true` so onboarding always shows on launch regardless of the persisted
-/// completion flag. Once the screens are finalized, set it back to `false`
-/// to restore the production behavior: onboarding plays once, then the
-/// splash routes straight to home on every later launch.
-const bool kForceOnboardingDuringDevelopment = true;
-
 /// Screen 01 — splash with brand mark and the design's loading indicator.
 ///
 /// The loader shows while the application finishes bringing persisted state
-/// online, then routes to onboarding or home depending on completion.
+/// online, then routes to onboarding the first time and straight to home on
+/// every later launch.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -42,12 +34,10 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted || _routed) return;
     _routed = true;
     final state = AppStateScope.of(context);
-    if (!kForceOnboardingDuringDevelopment && state.onboardingComplete) {
-      Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (_) => false);
-    } else {
-      Navigator.of(context)
-          .pushNamedAndRemoveUntil(Routes.onboardingGrow, (_) => false);
-    }
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      state.onboardingComplete ? Routes.home : Routes.onboardingGrow,
+      (_) => false,
+    );
   }
 
   @override

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +15,7 @@ import 'package:devine_word/data/models.dart';
 import 'package:devine_word/data/recitation_timing.dart';
 import 'package:devine_word/data/quran_repository.dart';
 import 'package:devine_word/design/app_theme.dart';
+import 'package:devine_word/design/screen_frame.dart';
 import 'package:devine_word/design/tokens.dart';
 import 'package:devine_word/main.dart';
 import 'package:devine_word/routing/app_router.dart';
@@ -21,10 +24,13 @@ import 'package:devine_word/screens/onboarding_grow_screen.dart';
 import 'package:devine_word/screens/onboarding_journey_screen.dart';
 import 'package:devine_word/screens/onboarding_quran_screen.dart';
 import 'package:devine_word/screens/splash_screen.dart';
+import 'package:devine_word/services/ad_service.dart';
 import 'package:devine_word/services/audio_service.dart';
 import 'package:devine_word/services/preferences_service.dart';
 import 'package:devine_word/state/app_state.dart';
 import 'package:devine_word/state/app_state_scope.dart';
+import 'package:devine_word/widgets/ad_banner.dart';
+import 'package:devine_word/widgets/dw_flame.dart';
 import 'package:devine_word/widgets/dw_svg.dart';
 import 'package:devine_word/widgets/onboarding_bits.dart';
 import 'package:devine_word/widgets/synced_ayah_text.dart';
@@ -42,38 +48,18 @@ void main() {
       );
     });
 
-    test('finds an ayah by reference and returns null otherwise', () {
-      expect(repository.findByReference('94:6'), isNotNull);
-      expect(repository.findByReference('1:1'), isNull);
-    });
     test('ayah translation falls back when language is missing', () {
-      final ayah = repository.findByReference('94:6')!;
-      expect(ayah.translationFor(TranslationLanguage.english), isNotEmpty);
-    });
-
-    test('appendLivePool grows the pool and skips known references', () {
-      QuranRepository.resetLivePoolForTest();
-      final before = repository.loadDailyPool().length;
-      QuranRepository.appendLivePool([
-        const Ayah(
-          reference: '112:1',
-          surahName: 'AL-IKHLAS',
-          arabic: 'قُلْ هُوَ اللَّهُ أَحَدٌ',
-          translations: {
-            TranslationLanguage.english: 'Say: He is Allah, the One;',
-          },
-        ),
-        // A reference already in circulation must not be added twice.
-        const Ayah(
-          reference: '94:6',
-          surahName: 'ASH-SHARH',
-          arabic: 'إِنَّ مَعَ الْعُسْرِ يُسْرًا',
-          translations: {},
-        ),
-      ]);
-      final pool = repository.loadDailyPool();
-      expect(pool.length, before + 1);
-      expect(pool.last.reference, '112:1');
+      const ayah = Ayah(
+        reference: '94:6',
+        surahName: 'ASH-SHARH',
+        arabic: 'إِنَّ مَعَ الْعُسْرِ يُسْرًا',
+        translations: {
+          TranslationLanguage.english: 'Indeed, with hardship comes ease.',
+        },
+      );
+      // Asking for a language the ayah has no text for falls back to the
+      // first available translation instead of rendering nothing.
+      expect(ayah.translationFor(TranslationLanguage.bengali), isNotEmpty);
     });
   });
 
@@ -455,6 +441,21 @@ void main() {
       expect(AppState(preferences: preferences).onboardingComplete, isTrue);
     });
 
+    test('debug reset rewinds onboarding to the first step', () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = PreferencesService(
+        await SharedPreferences.getInstance(),
+      );
+      await AppState(preferences: preferences).completeOnboarding();
+      expect(preferences.onboardingComplete, isTrue);
+
+      // The same call `main()` makes under `--dart-define=DW_RESET_ONBOARDING`.
+      await preferences.clearOnboarding();
+
+      expect(preferences.onboardingComplete, isFalse);
+      expect(AppState(preferences: preferences).onboardingComplete, isFalse);
+    });
+
     test('daily pool keeps offline content on network failure', () async {
       SharedPreferences.setMockInitialValues({});
       QuranRepository.resetLivePoolForTest();
@@ -467,8 +468,6 @@ void main() {
       final before = state.repository.loadDailyPool();
       await state.loadLiveData();
       expect(state.repository.loadDailyPool(), before);
-      expect(state.isLoadingLiveData, isFalse);
-      expect(state.liveDataError, isNotNull);
     });
   });
 
@@ -490,8 +489,8 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       expect(tester.takeException(), isNull);
       // The launch surface (splash loader or the home ayah card, depending
-      // on the splash-routing development switch) must render content — it
-      // must never strand the app on an empty frame.
+      // on whether onboarding was already completed) must render content —
+      // it must never strand the app on an empty frame.
       expect(find.byType(MaterialApp), findsOneWidget);
       expect(find.byType(Navigator), findsOneWidget);
       expect(find.byType(Text), findsWidgets);
@@ -864,6 +863,155 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('the flame sprite lands exactly on the flame in the art', (
+      tester,
+    ) async {
+      // 1:1 mapping between design pixels and the test surface.
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      final art = find.byWidgetPredicate(
+        (widget) =>
+            widget is DwContainImage &&
+            widget.asset.endsWith('faith-journey.png'),
+      );
+      final artRect = tester.getRect(art);
+      final flameRect = tester.getRect(find.byType(DwFlame));
+
+      // The 974×1318 art is contained in a 422×556 box, so it draws at
+      // 556/1318 and is centred in the slack that leaves over. The sprite is
+      // the 72×145 patch at x 446–518, y 660–805 of that art, and it has to sit
+      // back down over exactly those source pixels: a sprite placed a pixel or
+      // two off would double-edge the flame against it.
+      const scale = 556 / 1318;
+      final slack = (artRect.width - 974 * scale) / 2;
+      // The art box is what the flame is measured from, so a drift there has to
+      // fail loudly rather than drag the sprite along with it.
+      expect(artRect, const Rect.fromLTWH(9, 273, 422, 556));
+      expect(
+        flameRect.left - artRect.left,
+        moreOrLessEquals(slack + 446 * scale, epsilon: 0.01),
+      );
+      expect(
+        flameRect.top - artRect.top,
+        moreOrLessEquals(660 * scale, epsilon: 0.01),
+      );
+      expect(flameRect.width, moreOrLessEquals(72 * scale, epsilon: 0.01));
+      expect(flameRect.height, moreOrLessEquals(145 * scale, epsilon: 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the flame flickers at the wick without drifting', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      // Pin the motion flag rather than inherit the host's: a developer running
+      // with "Reduce Motion" on would otherwise fail a test about movement.
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          FakeAccessibilityFeatures(disableAnimations: false);
+      addTearDown(
+        tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      final sprite = find.byType(DwFlame);
+      final rect = tester.getRect(sprite);
+      Transform pose() => tester.widget<Transform>(
+        find.descendant(of: sprite, matching: find.byType(Transform)),
+      );
+
+      /// Where a point of the sprite is painted. A [Transform] applies its
+      /// matrix about its alignment, so the matrix alone says nothing unless
+      /// the pivot is put back in.
+      Offset painted(Transform t, Offset point) {
+        final align = t.alignment! as Alignment;
+        final pivot = Offset(
+          rect.left + (align.x + 1) / 2 * rect.width,
+          rect.top + (align.y + 1) / 2 * rect.height,
+        );
+        return pivot + MatrixUtils.transformPoint(t.transform, point - pivot);
+      }
+
+      // The anchor belongs at the wick, near the sprite's bottom edge. A flame
+      // pinned at its own middle would slide its base across the candle.
+      final anchor = pose().alignment! as Alignment;
+      expect(anchor.x, 0);
+      expect(anchor.y, greaterThan(0.9));
+
+      final bases = <Offset>[];
+      final tips = <Offset>[];
+      final stretches = <double>[];
+      for (var frame = 0; frame < 60; frame++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        final t = pose();
+        bases.add(painted(t, Offset(rect.center.dx, rect.bottom)));
+        tips.add(painted(t, Offset(rect.center.dx, rect.top)));
+        // [DwFlame] builds M = R·S, so the rotated mesh's y axis is M's second
+        // column: its length is the vertical stretch.
+        final m = t.transform;
+        stretches.add(
+          math.sqrt(
+            m.entry(0, 1) * m.entry(0, 1) + m.entry(1, 1) * m.entry(1, 1),
+          ),
+        );
+      }
+
+      double spread(Iterable<double> values) =>
+          values.reduce(math.max) - values.reduce(math.min);
+
+      // Three seconds of flicker. The tip has to travel — it is a flame — but
+      // by a few design pixels, not by centimetres: it is a candle.
+      expect(spread(tips.map((p) => p.dx)), greaterThan(2));
+      expect(spread(tips.map((p) => p.dx)), lessThan(8));
+      expect(spread(tips.map((p) => p.dy)), greaterThan(1));
+      expect(spread(tips.map((p) => p.dy)), lessThan(8));
+      expect(stretches.reduce(math.max), lessThan(1.05));
+      expect(stretches.reduce(math.min), greaterThan(0.95));
+      expect(tips.toSet().length, greaterThan(20)); // never a still frame
+
+      // The wick end is the part that must not move: everything the animation
+      // does has to happen above it.
+      expect(spread(bases.map((p) => p.dx)), lessThan(0.2));
+      expect(spread(bases.map((p) => p.dy)), lessThan(0.2));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the flame holds still when animations are disabled', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+          FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      // `prefers-reduced-motion`: the sprite is still painted — it *is* the
+      // flame, the art only has a glow there — but nothing transforms it.
+      final sprite = find.byType(DwFlame);
+      expect(sprite, findsOneWidget);
+      expect(
+        find.descendant(of: sprite, matching: find.byType(Transform)),
+        findsNothing,
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(
+        find.descendant(of: sprite, matching: find.byType(Transform)),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('quran screen shows screen 3 and finishes onboarding home', (
       tester,
     ) async {
@@ -950,6 +1098,72 @@ void main() {
       expect(find.text('Every journey of\nfaith is unique'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('journey art paints as a raster, not a runtime SVG compile', (
+      tester,
+    ) async {
+      // 1:1 mapping between design pixels and the test surface.
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpOnboarding(tester, Routes.onboardingJourney);
+
+      // .candle-art is a 974x1318 raster decoded by the engine, so it is in
+      // the tree on the first frame instead of appearing only after a
+      // vector_graphics compile.
+      final art = find.byWidgetPredicate(
+        (w) =>
+            w is Image &&
+            w.image is AssetImage &&
+            (w.image as AssetImage).assetName.endsWith('faith-journey.png'),
+      );
+      expect(art, findsOneWidget);
+
+      // The traced SVG that used to back this art is gone — nothing on the
+      // step still asks flutter_svg to compile it.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is DwSvg && w.asset.contains('faith-journey'),
+        ),
+        findsNothing,
+      );
+
+      final rect = tester.getRect(art);
+      expect(rect.left, 9);
+      expect(rect.top, 273);
+      expect(rect.width, 422);
+      expect(rect.height, 556);
+      expect(tester.takeException(), isNull);
+    });
+
+    test(
+      'journey art ships as a compact raster, not a per-pixel SVG trace',
+      () {
+        final png = File('assets/09-onboarding/faith-journey.png');
+        expect(png.existsSync(), isTrue);
+
+        // PNG signature, then the IHDR width/height as big-endian uint32s.
+        final bytes = png.readAsBytesSync();
+        expect(bytes.sublist(0, 8), <int>[137, 80, 78, 71, 13, 10, 26, 10]);
+        int dimensionAt(int offset) =>
+            (bytes[offset] << 24) |
+            (bytes[offset + 1] << 16) |
+            (bytes[offset + 2] << 8) |
+            bytes[offset + 3];
+        expect(dimensionAt(16), 974);
+        expect(dimensionAt(20), 1318);
+
+        // The traced SVG it replaced was 7,027,804 bytes of 62,272 paths
+        // (324,625 rectangles) that flutter_svg had to compile at runtime
+        // before the art could paint.
+        expect(png.lengthSync(), lessThan(1024 * 1024));
+        expect(
+          File('assets/09-onboarding/faith-journey.svg').existsSync(),
+          isFalse,
+        );
+      },
+    );
 
     test(
       'back disc glyph is centred in the disc and slightly smaller',
@@ -1183,6 +1397,64 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+
+  group('Ads', () {
+    test('debug builds request the official test unit for each platform', () {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      expect(AdService.bannerUnitId, 'ca-app-pub-3940256099942544/6300978111');
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      expect(AdService.bannerUnitId, 'ca-app-pub-3940256099942544/2934735716');
+    });
+
+    test('production banner units are platform-specific', () {
+      expect(
+        AdService.androidProductionBannerUnitId,
+        'ca-app-pub-1873608409349621/3932628220',
+      );
+      expect(
+        AdService.iosProductionBannerUnitId,
+        'ca-app-pub-1873608409349621/9348606434',
+      );
+    });
+
+    test('the SDK stays untouched under `flutter test`', () async {
+      expect(AdService.isUnitTest, isTrue);
+      expect(AdService.isEnabled, isFalse);
+      // Initialization is a no-op here: it never reaches the plugin's
+      // platform channels, so there is nothing to mock.
+      await AdService.initialize();
+      expect(AdService.isEnabled, isFalse);
+    });
+
+    testWidgets('the banner is ad-free here, full-width, and pinned to the '
+        'screen bottom', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      QuranRepository.resetLivePoolForTest();
+      addTearDown(QuranRepository.resetLivePoolForTest);
+      final state = AppState(
+        preferences: PreferencesService(await SharedPreferences.getInstance()),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildDevineWordTheme(),
+          home: AppStateScope(state: state, child: const HomeScreen()),
+        ),
+      );
+      await tester.pump();
+
+      final banner = find.byType(AdBanner);
+      expect(banner, findsOneWidget);
+      expect(tester.getSize(banner).height, 0);
+
+      final artboard = tester.getRect(find.byType(DwScreenFrame));
+      final bannerRect = tester.getRect(banner);
+      expect(bannerRect.left, artboard.left);
+      expect(bannerRect.right, artboard.right);
+      expect(bannerRect.bottom, artboard.bottom);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 

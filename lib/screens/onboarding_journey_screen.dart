@@ -1,10 +1,11 @@
-import 'dart:ui' show ImageFilter;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../design/screen_frame.dart';
 import '../design/tokens.dart';
 import '../routing/app_router.dart';
+import '../widgets/dw_flame.dart';
 import '../widgets/dw_svg.dart';
 import '../widgets/onboarding_bits.dart';
 
@@ -20,15 +21,40 @@ import '../widgets/onboarding_bits.dart';
 /// intro so both onboarding steps share one rhythm.
 const Duration _journeyIntroDuration = Duration(milliseconds: 2800);
 
-/// Headline: opacity resolves over this slice, the blur clears over
-/// [_journeyTitleBlur]. The two are deliberately offset, so the type is
-/// already legible while it is still finishing its defocus — same recipe
-/// as the grow screen's title.
-const Interval _journeyTitleFade = Interval(0.10, 0.45, curve: Curves.easeOut);
-const Interval _journeyTitleBlur = Interval(0.00, 0.62, curve: Curves.easeOut);
+/// The flame, measured inside the source art rather than on the artboard: the
+/// sprite is the 72×145 patch at x 446–518, y 660–805 of the 974×1318
+/// `faith-journey.png`, and the wick meets it at y=802. Keeping the numbers in
+/// source pixels means they can be checked straight against the file.
+const Size _faithJourneyArt = Size(974, 1318);
+const Rect _faithJourneyBox = Rect.fromLTWH(9, 273, 422, 556);
+const Rect _flameArtBox = Rect.fromLTRB(446, 660, 518, 805);
 
-/// Blur radius (design px) the headline starts at.
-const double _journeyTitleBlurStart = 12;
+/// [_flameArtBox] mapped onto the 440×956 artboard.
+///
+/// The art renders object-fit: contain inside [_faithJourneyBox], so one scale
+/// factor — plus the centring slack on whichever axis has room to spare — is
+/// what turns a source-art rect into an artboard rect. Because the sprite is
+/// scaled by that same factor and drawn with the same default filter as the art
+/// underneath it, its pixels are exactly as soft as the ones they cover: the
+/// join has nothing to give it away.
+Rect _flameBox() {
+  final scale = math.min(
+    _faithJourneyBox.width / _faithJourneyArt.width,
+    _faithJourneyBox.height / _faithJourneyArt.height,
+  );
+  final dx =
+      _faithJourneyBox.left +
+      (_faithJourneyBox.width - _faithJourneyArt.width * scale) / 2;
+  final dy =
+      _faithJourneyBox.top +
+      (_faithJourneyBox.height - _faithJourneyArt.height * scale) / 2;
+  return Rect.fromLTWH(
+    dx + _flameArtBox.left * scale,
+    dy + _flameArtBox.top * scale,
+    _flameArtBox.width * scale,
+    _flameArtBox.height * scale,
+  );
+}
 
 class OnboardingJourneyScreen extends StatefulWidget {
   const OnboardingJourneyScreen({super.key});
@@ -74,18 +100,37 @@ class _OnboardingJourneyScreenState extends State<OnboardingJourneyScreen>
       body: (context) => Stack(
         children: [
           // .candle-art (z3) — hand holding a candle with botanical vines;
-          // 974×1318 vector source at 422px wide → 556px tall
-          // (object-fit: contain).
-          Positioned(
-            left: 9,
-            top: 273,
-            width: 422,
-            height: 556,
-            child: const DwSvg('assets/09-onboarding/faith-journey.svg'),
+          // 974×1318 raster at 422px wide → 556px tall (object-fit:
+          // contain). Shipped as a PNG because the traced SVG it replaced
+          // held 62,272 paths (324,625 rectangles) and had to be compiled by
+          // flutter_svg before it could paint — a ~1.3s stall on the UI
+          // isolate in a debug build, with an empty hole where the art goes.
+          // The box is named because the flame sprite below is placed from it.
+          Positioned.fromRect(
+            rect: _faithJourneyBox,
+            child: const DwContainImage(
+              'assets/09-onboarding/faith-journey.png',
+            ),
           ),
+          // .journey-flame (z3.1) — the same flame, cut out of the art above as
+          // its own sprite and laid back over the spot it came from, so it can
+          // flicker while the hand, the candle and the vines hold still. The
+          // art keeps a soft candle-glow fill where the flame was, which is
+          // what shows through when the sprite leans off its resting pose.
+          Positioned.fromRect(rect: _flameBox(), child: const DwFlame()),
           // .journey-title (z4) — serif 46/1.02, centred, #076b5b. Same
           // blur-to-sharp resolve as the grow screen's headline.
-          _JourneyTitle(intro: _intro),
+          OnboardingBlurTitle(
+            text: 'Every journey of\nfaith is unique',
+            intro: _intro,
+            left: 50,
+            top: 124,
+            width: 340,
+            fontSize: 46,
+            height: 1.02,
+            letterSpacing: -0.75,
+            color: Color(0xFF076B5B),
+          ),
           // .journey-flower (z6) — bloom perched on the candle art.
           const Positioned(
             left: 197,
@@ -120,46 +165,5 @@ class _OnboardingJourneyScreenState extends State<OnboardingJourneyScreen>
   }
 }
 
-/// The prototype's `.journey-title`: 46px serif, centred, two lines. It
-/// never moves — it resolves from a heavy blur into sharp type, the same
-/// choreography as the grow screen's headline.
-class _JourneyTitle extends StatelessWidget {
-  const _JourneyTitle({required this.intro});
-
-  final Animation<double> intro;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 50,
-      top: 124,
-      width: 340,
-      child: AnimatedBuilder(
-        animation: intro,
-        builder: (context, child) {
-          final opacity = _journeyTitleFade.transform(intro.value);
-          final sharpen = _journeyTitleBlur.transform(intro.value);
-          final sigma = _journeyTitleBlurStart * (1 - sharpen);
-          final text = Opacity(opacity: opacity, child: child!);
-          if (sigma < 0.05) return text;
-          return ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-            child: text,
-          );
-        },
-        child: const Text(
-          'Every journey of\nfaith is unique',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: Dw.display,
-            fontSize: 46,
-            height: 1.02,
-            fontWeight: FontWeight.w400,
-            letterSpacing: -0.75,
-                        color: Color(0xFF076B5B),
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// The prototype's `.journey-title`: 46px serif, centred, two lines — the
+/// [OnboardingBlurTitle] handles the blur-to-sharp arrival.

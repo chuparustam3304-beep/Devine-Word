@@ -9,17 +9,18 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
   flutter_svg: ^2.3.0
   shared_preferences: ^2.2.3
   http: ^1.6.0
   just_audio: ^0.10.6
   share_plus: ^13.3.0
+  google_mobile_ads: ^9.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -27,7 +28,6 @@ flutter:
   assets:
     - assets/01-splash/
     - assets/09-onboarding/
-    - assets/05-home/
     - assets/05-home/quran_reader/extracted/decorations/
     - assets/05-home/quran_reader/extracted/icons/
     - assets/05-home/quran_reader/extracted/ui/
@@ -58,3 +58,11 @@ flutter:
     - family: Noto Sans Bengali
       fonts:
         - asset: assets/fonts/NotoSansBengali-400.ttf
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/launcher/app-icon.png
+  adaptive_icon_background: "#195344"
+  adaptive_icon_foreground: assets/launcher/adaptive-foreground.png
+  remove_alpha_ios: true

@@ -63,27 +63,9 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
   StreamSubscription<Duration>? _positionSub;
   final ValueNotifier<int> _activeWord = ValueNotifier<int>(-1);
 
-  // TEMP-DEBUG: heartbeat counters (immune to dropped log lines).
-  static int _inits = 0;
-  static int _disposes = 0;
-  static int _ticks = 0;
-  Timer? _heartbeat;
-
   @override
   void initState() {
     super.initState();
-    // TEMP-DEBUG
-    _inits++;
-    _heartbeat = Timer.periodic(const Duration(seconds: 2), (_) {
-      debugPrint(
-        'DW-HEART inits=$_inits disposes=$_disposes ticks=$_ticks '
-        'live=${_activeWord.value} timings=${_timings?.length} '
-        'thisAyah=${AudioService.instance.loadedUrl == widget.audioUrl} '
-        'raw=${AudioService.instance.debugTicks} '
-        'pstate=${AudioService.instance.debugPstate} '
-        'ref=${widget.reference}',
-      );
-    });
     _loadTimings();
     _listenPosition();
   }
@@ -91,10 +73,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
   @override
   void didUpdateWidget(covariant SyncedAyahText oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // TEMP-DEBUG
-    debugPrint(
-      'DW-UPDATE $hashCode ${oldWidget.reference}->${widget.reference}',
-    );
     if (widget.reference != oldWidget.reference) {
       _timings = null;
       _activeWord.value = -1;
@@ -104,10 +82,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
 
   @override
   void dispose() {
-    // TEMP-DEBUG
-    _disposes++;
-    debugPrint('DW-DISPOSE $hashCode\n${StackTrace.current}');
-    _heartbeat?.cancel();
     _positionSub?.cancel();
     _activeWord.dispose();
     super.dispose();
@@ -122,8 +96,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
     service.forReference(reference).then((timings) {
       _fetching = false;
       if (!mounted || _requestedReference != reference) return;
-      // TEMP-DEBUG
-      debugPrint('DW-TIMINGS $reference -> ${timings?.length}');
       setState(() => _timings = timings);
     });
   }
@@ -140,8 +112,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
           ? activeWordIndex(timings, position.inMilliseconds)
           : -1;
       if (_activeWord.value != index) {
-        // TEMP-DEBUG
-        _ticks++;
         _activeWord.value = index;
       }
     });
@@ -151,11 +121,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
   Widget build(BuildContext context) {
     final timings = _timings;
     if (timings == null || timings.isEmpty) {
-      // TEMP-DEBUG
-      debugPrint(
-        'DW-BUILD $hashCode PLAIN ref=${widget.reference} '
-        'timings=${timings?.length}',
-      );
       return _plain();
     }
     final tokens = widget.arabic.split(RegExp(r'\s+'));
@@ -168,14 +133,6 @@ class _SyncedAyahTextState extends State<SyncedAyahText> {
       }
     }
     if (wordCount == 0) return _plain();
-    // TEMP-DEBUG
-    debugPrint(
-      'DW-BUILD $hashCode RICH ref=${widget.reference} '
-      'timings=${timings.length} words=$wordCount '
-      'map=${segmentWordsForTextWords(timings, wordCount)} '
-      'active=${_activeWord.value} '
-      'url=${widget.audioUrl} loaded=${AudioService.instance.loadedUrl}',
-    );
     // The recitation's word numbering need not match the displayed text's —
     // a few ayat carry more segments than words (a word recited across
     // several segments) and some text editions add words the audio does not

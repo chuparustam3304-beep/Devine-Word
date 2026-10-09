@@ -6,13 +6,18 @@ import 'package:share_plus/share_plus.dart';
 import '../data/models.dart';
 import '../design/screen_frame.dart';
 import '../design/tokens.dart';
+import '../services/ad_service.dart';
 import '../services/audio_service.dart';
 import '../state/app_state_scope.dart';
+import '../widgets/ad_banner.dart';
 import '../widgets/dw_svg.dart';
 import '../widgets/synced_ayah_text.dart';
 
 const _asset = 'assets/05-home/quran_reader/';
-const _green = Color(0xFF1C5C48);
+const _green = Dw.quranGreen;
+
+/// Paper ground used by the home artboard and bottom-anchored ad strip.
+const _ground = Color(0xFFE9E6D9);
 
 /// Native implementation of the supplied 603 × 1280 HTML artboard.
 /// Lettering is live Quran text, never the template's static verse images.
@@ -30,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _index = 0;
   double _scale = 1;
   TranslationLanguage _language = TranslationLanguage.urdu;
+  bool _privacyOptionsRequired = false;
+  int _bannerRevision = 0;
 
   /// In-flight card swap: the top card slides off in [_slide] while the card
   /// beneath it — already seated in the paper stack — is revealed. The deck
@@ -45,6 +52,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 420),
     )..addStatusListener(_onDeckSettled);
+    if (AdService.isEnabled) {
+      unawaited(_loadPrivacyOptionsRequirement());
+    }
+  }
+
+  Future<void> _loadPrivacyOptionsRequirement() async {
+    await AdService.initialize();
+    if (!mounted) return;
+    setState(() {
+      _privacyOptionsRequired = AdService.privacyOptionsRequired;
+    });
+  }
+
+  Future<void> _showPrivacyOptions() async {
+    await AdService.showPrivacyOptionsForm();
+    if (!mounted) return;
+    setState(() {
+      _privacyOptionsRequired = AdService.privacyOptionsRequired;
+      _bannerRevision++;
+    });
   }
 
   /// When the top card has fully left the frame, the revealed card becomes
@@ -82,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final language = await showDialog<TranslationLanguage>(
       context: context,
       builder: (context) => SimpleDialog(
-        backgroundColor: const Color(0xFFF6F4E7),
+        backgroundColor: Dw.quranPaper,
         title: const Text('Translation language'),
         children: [
           for (final language in TranslationLanguage.values)
@@ -127,10 +154,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final pool = AppStateScope.of(context).repository.loadDailyPool();
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _artboard(pool),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: AdBanner(
+            key: ValueKey(_bannerRevision),
+            backgroundColor: _ground,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The approved 603 × 1280 artboard, matted on the paper ground.
+  Widget _artboard(List<Ayah> pool) {
     return DwScreenFrame(
       designWidth: 603,
       designHeight: 1280,
-      background: const Color(0xFFE9E6D9),
+      background: _ground,
       body: (context) => Stack(
         children: [
           Positioned.fill(
@@ -183,6 +229,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           // top card slides off and the card seated beneath is revealed.
           _buildDeck(pool),
           _image('extracted/icons/brand-mark.png', 46, 82, 46, 47),
+          if (_privacyOptionsRequired)
+            _RoundButton(
+              left: 99,
+              top: 79,
+              size: 49,
+              label: 'Privacy options',
+              onTap: _showPrivacyOptions,
+              child: const Icon(Icons.privacy_tip_outlined, color: _green),
+            ),
           _RoundButton(
             left: 506,
             top: 79,

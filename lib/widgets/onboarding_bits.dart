@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
@@ -167,3 +169,75 @@ class OnboardingFeaturePill extends StatelessWidget {
     );
   }
 }
+
+/// Serif headline that resolves from a heavy blur into sharp type — the
+/// shared arrival beat of the quranic onboarding steps. The opacity finishes
+/// resolving while the defocus is still clearing, so the type is already
+/// legible as it sharpens.
+class OnboardingBlurTitle extends StatelessWidget {
+  const OnboardingBlurTitle({
+    super.key,
+    required this.text,
+    required this.intro,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.fontSize,
+    required this.height,
+    required this.letterSpacing,
+    required this.color,
+  });
+
+  final String text;
+  final Animation<double> intro;
+  final double left;
+  final double top;
+  final double width;
+  final double fontSize;
+  final double height;
+  final double letterSpacing;
+  final Color color;
+
+  /// Opacity resolves over this slice; the blur clears over [_blur].
+  static const Interval _fade = Interval(0.10, 0.45, curve: Curves.easeOut);
+  static const Interval _blur = Interval(0.00, 0.62, curve: Curves.easeOut);
+
+  /// Blur radius (design px) the headline starts at.
+  static const double _blurStart = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      child: AnimatedBuilder(
+        animation: intro,
+        builder: (context, child) {
+          final opacity = _fade.transform(intro.value);
+          final sharpen = _blur.transform(intro.value);
+          final sigma = _blurStart * (1 - sharpen);
+          final text = Opacity(opacity: opacity, child: child!);
+          if (sigma < 0.05) return text;
+          return ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: text,
+          );
+        },
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: Dw.display,
+            fontSize: fontSize,
+            height: height,
+            fontWeight: FontWeight.w400,
+            letterSpacing: letterSpacing,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+

@@ -32,6 +32,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- google_mobile_ads: Devine Word's AdMob application ID (Android).
+             The banner requests Google's official test unit in debug builds,
+             so no live impressions are recorded while developing. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1873608409349621~6515568692"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
